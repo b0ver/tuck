@@ -1,0 +1,44 @@
+/* Menu */
+"menu.toggle.collapse" = "Скрыть иконки";
+"menu.toggle.expand" = "Показать иконки в строке меню";
+"menu.panel" = "Показать скрытые иконки…";
+"menu.settings" = "Настройки…";
+"menu.launchAtLogin" = "Запускать при входе";
+"menu.quit" = "Завершить Tuck";
+
+/* Separator */
+"separator.tooltip" = "Разделитель Tuck — перетащите иконки левее него с зажатым ⌘, чтобы скрыть";
+
+/* Panel */
+"panel.empty" = "Скрытых иконок пока нет. Удерживая ⌘, перетащите иконки строки меню левее разделителя Tuck.";
+
+/* Settings */
+"settings.title" = "Настройки Tuck";
+"tab.general" = "Общие";
+"tab.behavior" = "Поведение";
+"tab.permissions" = "Доступы";
+"tab.about" = "О приложении";
+
+"general.launchAtLogin" = "Запускать Tuck при входе в систему";
+"general.startCollapsed" = "Сворачивать иконки при запуске";
+"general.showSeparator" = "Показывать разделитель в строке меню";
+"general.hint" = "Чтобы скрыть иконку, перетащите её левее разделителя Tuck, удерживая ⌘. Иконки правее разделителя всегда остаются видимыми.";
+
+"behavior.reveal" = "Клик по иконке Tuck";
+"behavior.reveal.panel" = "Показывает выпадающую панель со скрытыми иконками";
+"behavior.reveal.inline" = "Разворачивает иконки в строке меню";
+"behavior.autocollapse" = "Скрывать иконки снова";
+"behavior.autocollapse.never" = "Никогда";
+"behavior.seconds" = "Через %d с";
+"behavior.hint" = "Клик с ⌥ по иконке Tuck использует альтернативный способ раскрытия.";
+
+"perm.screen" = "Запись экрана";
+"perm.screen.desc" = "Показывает живые миниатюры скрытых иконок в панели.";
+"perm.ax" = "Универсальный доступ";
+"perm.ax.desc" = "Позволяет кликать по скрытым иконкам прямо из панели.";
+"perm.granted" = "Разрешено";
+"perm.request" = "Разрешить…";
+"perm.hint" = "Tuck работает и без этих разрешений: панель покажет значки приложений, а клик развернёт строку меню.";
+
+"about.tagline" = "Одна иконка, чтобы спрятать все.";
+"about.version" = "Версия %@";

@@ -1,0 +1,44 @@
+/* Menu */
+"menu.toggle.collapse" = "Hide Icons";
+"menu.toggle.expand" = "Show Icons in Menu Bar";
+"menu.panel" = "Show Hidden Icons…";
+"menu.settings" = "Settings…";
+"menu.launchAtLogin" = "Launch at Login";
+"menu.quit" = "Quit Tuck";
+
+/* Separator */
+"separator.tooltip" = "Tuck divider — ⌘-drag icons to the left of it to hide them";
+
+/* Panel */
+"panel.empty" = "No hidden icons yet. Hold ⌘ and drag menu bar icons to the left of the Tuck divider.";
+
+/* Settings */
+"settings.title" = "Tuck Settings";
+"tab.general" = "General";
+"tab.behavior" = "Behavior";
+"tab.permissions" = "Permissions";
+"tab.about" = "About";
+
+"general.launchAtLogin" = "Launch Tuck at login";
+"general.startCollapsed" = "Collapse icons on launch";
+"general.showSeparator" = "Show divider in menu bar";
+"general.hint" = "To hide an icon, hold ⌘ and drag it to the left of the Tuck divider. Icons to the right of the divider always stay visible.";
+
+"behavior.reveal" = "Click on the Tuck icon";
+"behavior.reveal.panel" = "Shows a drop-down panel with hidden icons";
+"behavior.reveal.inline" = "Expands icons in the menu bar";
+"behavior.autocollapse" = "Hide icons again";
+"behavior.autocollapse.never" = "Never";
+"behavior.seconds" = "After %d sec";
+"behavior.hint" = "⌥-click the Tuck icon to use the alternate reveal style.";
+
+"perm.screen" = "Screen Recording";
+"perm.screen.desc" = "Shows live previews of hidden icons in the panel.";
+"perm.ax" = "Accessibility";
+"perm.ax.desc" = "Lets you click hidden icons right from the panel.";
+"perm.granted" = "Granted";
+"perm.request" = "Allow…";
+"perm.hint" = "Tuck works without these permissions too: the panel falls back to app icons, and clicking expands the menu bar.";
+
+"about.tagline" = "One icon to tuck them all.";
+"about.version" = "Version %@";
