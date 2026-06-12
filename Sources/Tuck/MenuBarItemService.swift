@@ -296,12 +296,15 @@ enum MenuBarItemService {
 
         return items.map { item in
             var item = item
-            if let match = extras.min(by: { abs($0.x - item.frame.minX) < abs($1.x - item.frame.minX) }),
-               abs(match.x - item.frame.minX) < 5 {
-                item.appPID = match.pid
-                item.appBundleID = match.bundle
-                item.appName = match.name
-                if let t = match.title, !t.isEmpty { item.axTitle = t }
+            if let match = extras.min(by: { abs($0.x - item.frame.minX) < abs($1.x - item.frame.minX) }) {
+                if abs(match.x - item.frame.minX) < 8 {
+                    item.appPID = match.pid
+                    item.appBundleID = match.bundle
+                    item.appName = match.name
+                    if let t = match.title, !t.isEmpty { item.axTitle = t }
+                } else {
+                    TuckLog.log("annotate: NO MATCH for item x=\(Int(item.frame.minX)) w=\(Int(item.frame.width)) — nearest extra x=\(Int(match.x)) (\(match.name ?? "?"))")
+                }
             }
             return item
         }

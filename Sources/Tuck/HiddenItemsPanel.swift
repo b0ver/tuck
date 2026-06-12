@@ -58,6 +58,10 @@ final class HiddenItemsPanelController: NSObject {
                 self?.close()
                 controller?.forwardClick(to: item)
             },
+            onRightClick: { [weak self, weak controller] item in
+                self?.close()
+                controller?.forwardClick(to: item, rightButton: true)
+            },
             onPin: { [weak self, weak controller] item in
                 self?.close()
                 guard let key = keys[item.id] else { return }
@@ -160,6 +164,7 @@ struct HiddenItemsPanelView: View {
     let iconsPerRow: Int
     let needsPermission: Bool
     let onClick: (BarItem) -> Void
+    let onRightClick: (BarItem) -> Void
     let onPin: (BarItem) -> Void
     let onGrantPermission: () -> Void
     let onRestart: () -> Void
@@ -201,6 +206,7 @@ struct HiddenItemsPanelView: View {
                                 PanelIconButton(
                                     item: item,
                                     action: { onClick(item) },
+                                    rightAction: { onRightClick(item) },
                                     pinAction: { onPin(item) }
                                 )
                             }
@@ -214,6 +220,21 @@ struct HiddenItemsPanelView: View {
 }
 
 private struct PanelIconButton: View {
+    let item: BarItem
+    let action: () -> Void
+    let rightAction: () -> Void
+    let pinAction: () -> Void
+
+    var body: some View {
+        // Right-click forwards the app's own context menu, like in the real
+        // menu bar; pinning lives on the hover badge instead.
+        RightClickable(onRightClick: rightAction) {
+            PanelIconTile(item: item, action: action, pinAction: pinAction)
+        }
+    }
+}
+
+private struct PanelIconTile: View {
     let item: BarItem
     let action: () -> Void
     let pinAction: () -> Void
@@ -233,9 +254,18 @@ private struct PanelIconButton: View {
         .buttonStyle(.plain)
         .help(item.displayTitle)
         .onHover { hovering = $0 }
-        .contextMenu {
-            Button(action: pinAction) {
-                Label(L("pin.pin"), systemImage: "pin")
+        .overlay(alignment: .topTrailing) {
+            if hovering {
+                Button(action: pinAction) {
+                    Image(systemName: "pin.circle.fill")
+                        .font(.system(size: 12, weight: .semibold))
+                        .symbolRenderingMode(.palette)
+                        .foregroundStyle(Color.white, Color.accentColor)
+                        .background(Circle().fill(.background).padding(1))
+                }
+                .buttonStyle(.plain)
+                .help(L("pin.pin"))
+                .offset(x: 4, y: -4)
             }
         }
     }
@@ -256,6 +286,53 @@ private struct PanelIconButton: View {
                 .font(.system(size: 14))
                 .foregroundStyle(.secondary)
                 .frame(width: 22)
+        }
+    }
+}
+
+/// Hosts SwiftUI content inside an NSView that catches right clicks anywhere
+/// over the content (SwiftUI has no native right-click gesture on macOS).
+/// Left clicks are handled by the SwiftUI controls and never reach this view.
+private struct RightClickable<Content: View>: NSViewRepresentable {
+    let onRightClick: () -> Void
+    @ViewBuilder let content: () -> Content
+
+    init(onRightClick: @escaping () -> Void, @ViewBuilder content: @escaping () -> Content) {
+        self.onRightClick = onRightClick
+        self.content = content
+    }
+
+    func makeNSView(context: Context) -> Container {
+        let container = Container()
+        container.onRightClick = onRightClick
+        let host = NSHostingView(rootView: content())
+        host.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(host)
+        container.host = host
+        NSLayoutConstraint.activate([
+            host.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            host.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            host.topAnchor.constraint(equalTo: container.topAnchor),
+            host.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+        ])
+        return container
+    }
+
+    func updateNSView(_ container: Container, context: Context) {
+        (container.host as? NSHostingView<Content>)?.rootView = content()
+        container.onRightClick = onRightClick
+    }
+
+    final class Container: NSView {
+        var onRightClick: (() -> Void)?
+        weak var host: NSView?
+
+        override var intrinsicContentSize: NSSize {
+            host?.fittingSize ?? .zero
+        }
+
+        override func rightMouseUp(with event: NSEvent) {
+            onRightClick?()
         }
     }
 }

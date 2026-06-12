@@ -39,8 +39,8 @@
 /* Pinning */
 "pin.pin" = "Pin next to Tuck";
 "pin.unpin" = "Unpin";
-"pin.tooltip" = "Pinned by Tuck — click to activate, right-click to unpin";
-"pin.hint" = "Right-click an icon in the panel to pin it: a live copy stays visible next to the Tuck button and forwards your clicks.";
+"pin.tooltip" = "pinned by Tuck. Click or right-click as usual, ⌥-click to unpin";
+"pin.hint" = "Hover an icon in the panel and hit the pin badge — it stays visible to the right of the Tuck chevron. Clicks (left and right) go to the real icon; ⌥-click unpins.";
 
 "perm.screen" = "Screen Recording";
 "perm.screen.desc" = "Shows live previews of hidden icons in the panel.";

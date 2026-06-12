@@ -59,14 +59,16 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         }
     }
 
-    /// Place the toggle right next to the system area and the separator just
-    /// left of it, so freshly installed users get a sane default layout.
+    /// Default layout, right to left: [pins] [toggle] [separator] — so pinned
+    /// icons sit to the right of the chevron, next to the system area.
     private func seedPreferredPositionsIfNeeded() {
-        guard !Prefs.shared.didSeedPositions else { return }
-        Prefs.shared.didSeedPositions = true
         let d = UserDefaults.standard
-        d.set(0, forKey: "NSStatusItem Preferred Position tuck.toggle")
-        d.set(40, forKey: "NSStatusItem Preferred Position tuck.separator")
+        guard !d.bool(forKey: "didSeedPositionsV2") else { return }
+        d.set(true, forKey: "didSeedPositionsV2")
+        Prefs.shared.didSeedPositions = true
+        d.set(6, forKey: "NSStatusItem Preferred Position tuck.pins")
+        d.set(40, forKey: "NSStatusItem Preferred Position tuck.toggle")
+        d.set(76, forKey: "NSStatusItem Preferred Position tuck.separator")
     }
 
     // MARK: - Preview cache
@@ -200,15 +202,16 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
     // MARK: - Panel click forwarding
 
-    /// Called by the panel when the user picks a hidden icon: expand the bar,
-    /// synthesize a click on the real status item, then collapse again once
-    /// the opened menu is dismissed.
-    func forwardClick(to item: BarItem) {
+    /// Called by the panel or a pinned proxy when the user picks a hidden
+    /// icon: expand the bar, synthesize a click (left or right) on the real
+    /// status item, then collapse again once the opened menu is dismissed.
+    func forwardClick(to item: BarItem, rightButton: Bool = false) {
         expand(startAutoCollapseTimer: false)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
             guard let self else { return }
             if let frame = MenuBarItemService.currentFrame(of: item.id) {
-                MenuBarItemService.postClick(at: CGPoint(x: frame.midX, y: frame.midY))
+                MenuBarItemService.postClick(at: CGPoint(x: frame.midX, y: frame.midY),
+                                             rightButton: rightButton)
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
                 self.collapseAfterNextGlobalClick()

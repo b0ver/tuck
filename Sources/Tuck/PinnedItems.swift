@@ -2,12 +2,16 @@ import AppKit
 
 /// Manages "pinned" icons: Tuck cannot physically move another app's status
 /// item out of the hidden section (only the user can, with ⌘-drag), so a pin
-/// is a proxy — Tuck's own status item that shows a live snapshot of the
-/// hidden icon next to the Tuck button and forwards clicks to the real one.
+/// is a proxy — Tuck shows live stand-ins for chosen hidden icons to the
+/// right of its chevron, behind a thin divider, and forwards clicks (left and
+/// right) to the real items. ⌥-click a pinned icon to unpin it.
+///
+/// All pins live in a single status item container so their position relative
+/// to the Tuck chevron is stable.
 final class PinnedItemsController {
     weak var statusBar: StatusBarController?
 
-    private var proxies: [String: NSStatusItem] = [:]   // pin key → proxy item
+    private var containerItem: NSStatusItem?
     private var currentItems: [String: BarItem] = [:]   // pin key → live match
 
     // MARK: - Pin / unpin
@@ -17,26 +21,27 @@ final class PinnedItemsController {
         guard !pinned.contains(where: { MenuBarItemService.keysMatch($0, key) }) else { return }
         pinned.append(key)
         Prefs.shared.pinnedItems = pinned
+        TuckLog.log("pin: \(key)")
         refresh()
     }
 
     func unpin(key: String) {
         Prefs.shared.pinnedItems.removeAll { $0 == key }
-        if let proxy = proxies.removeValue(forKey: key) {
-            NSStatusBar.system.removeStatusItem(proxy)
-        }
-        currentItems[key] = nil
+        TuckLog.log("unpin: \(key)")
         refresh()
     }
 
     // MARK: - Refresh
 
-    /// Rebuild proxies from the current hidden items. Only meaningful while
-    /// the bar is collapsed (hidden items are identified by off-screen x).
+    /// Rebuild the pin strip from the current hidden items. Only meaningful
+    /// while the bar is collapsed (hidden items are identified by off-screen x).
     func refresh() {
         guard let statusBar, statusBar.isCollapsed else { return }
         let pinned = Prefs.shared.pinnedItems
-        guard !pinned.isEmpty || !proxies.isEmpty else { return }
+        guard !pinned.isEmpty else {
+            removeContainer()
+            return
+        }
 
         var items = MenuBarItemService.annotateWithApps(
             MenuBarItemService.hiddenItemsWhileCollapsed()
@@ -57,85 +62,126 @@ final class PinnedItemsController {
         }
         currentItems = matches
 
-        // Drop proxies that are unpinned or whose item is gone (app quit).
-        for (key, proxy) in proxies where matches[key] == nil {
-            NSStatusBar.system.removeStatusItem(proxy)
-            proxies[key] = nil
+        let orderedKeys = pinned.filter { matches[$0] != nil }
+        guard !orderedKeys.isEmpty else {
+            removeContainer()
+            return
         }
-
-        for key in pinned {
-            guard let item = matches[key] else { continue }
-            let proxy = proxies[key] ?? makeProxy(for: key)
-            proxies[key] = proxy
-            updateImage(of: proxy, with: item)
-        }
+        rebuildStrip(keys: orderedKeys)
     }
 
-    private func makeProxy(for key: String) -> NSStatusItem {
-        let autosave = "tuck.pin.\(stableSuffix(of: key))"
-        // New pins land near the right edge, next to the Tuck button.
-        let positionKey = "NSStatusItem Preferred Position \(autosave)"
+    private func removeContainer() {
+        if let containerItem {
+            NSStatusBar.system.removeStatusItem(containerItem)
+        }
+        containerItem = nil
+        currentItems = [:]
+    }
+
+    // MARK: - Strip UI
+
+    private func ensureContainer() -> NSStatusItem {
+        if let containerItem { return containerItem }
+        // Default position: just right of the Tuck chevron (smaller preferred
+        // position = closer to the system area).
+        let positionKey = "NSStatusItem Preferred Position tuck.pins"
         if UserDefaults.standard.object(forKey: positionKey) == nil {
-            UserDefaults.standard.set(0, forKey: positionKey)
+            UserDefaults.standard.set(6, forKey: positionKey)
         }
-
-        let proxy = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        proxy.autosaveName = autosave
-        if let button = proxy.button {
-            button.target = self
-            button.action = #selector(proxyClicked(_:))
-            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
-            button.toolTip = L("pin.tooltip")
-        }
-        return proxy
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        item.autosaveName = "tuck.pins"
+        containerItem = item
+        return item
     }
 
-    private func updateImage(of proxy: NSStatusItem, with item: BarItem) {
-        guard let button = proxy.button else { return }
-        button.toolTip = "\(item.displayTitle) — \(L("pin.tooltip"))"
+    private func rebuildStrip(keys: [String]) {
+        let item = ensureContainer()
+        guard let button = item.button else { return }
+        button.subviews.forEach { $0.removeFromSuperview() }
+        button.image = nil
+
+        let stack = NSStackView()
+        stack.orientation = .horizontal
+        stack.alignment = .centerY
+        stack.spacing = 4
+
+        // The thin divider that visually separates pins from the chevron.
+        let divider = NSBox()
+        divider.boxType = .custom
+        divider.borderWidth = 0
+        divider.fillColor = NSColor.tertiaryLabelColor
+        divider.translatesAutoresizingMaskIntoConstraints = false
+        divider.widthAnchor.constraint(equalToConstant: 1).isActive = true
+        divider.heightAnchor.constraint(equalToConstant: 13).isActive = true
+        stack.addArrangedSubview(divider)
+
+        for key in keys {
+            guard let barItem = currentItems[key] else { continue }
+            let pinButton = PinButton()
+            pinButton.isBordered = false
+            pinButton.imagePosition = .imageOnly
+            pinButton.imageScaling = .scaleProportionallyDown
+            pinButton.image = displayImage(for: barItem)
+            pinButton.toolTip = "\(barItem.displayTitle) — \(L("pin.tooltip"))"
+            pinButton.identifier = NSUserInterfaceItemIdentifier(key)
+            pinButton.target = self
+            pinButton.action = #selector(pinLeftClicked(_:))
+            pinButton.onRightClick = { [weak self] option in
+                self?.handleClick(key: key, right: true, option: option)
+            }
+            pinButton.translatesAutoresizingMaskIntoConstraints = false
+            pinButton.widthAnchor.constraint(equalToConstant: 26).isActive = true
+            pinButton.heightAnchor.constraint(equalToConstant: 22).isActive = true
+            stack.addArrangedSubview(pinButton)
+        }
+
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        button.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: button.leadingAnchor, constant: 5),
+            stack.trailingAnchor.constraint(equalTo: button.trailingAnchor, constant: -3),
+            stack.centerYAnchor.constraint(equalTo: button.centerYAnchor),
+        ])
+        item.length = 5 + 1 + CGFloat(keys.count) * 30 + 3
+    }
+
+    private func displayImage(for item: BarItem) -> NSImage? {
         if let image = item.image, let copy = image.copy() as? NSImage {
             let height: CGFloat = 22
             let width = max(8, image.size.width * height / max(1, image.size.height))
             copy.size = NSSize(width: width, height: height)
-            button.image = copy
-        } else if let fallback = item.fallbackIcon, let copy = fallback.copy() as? NSImage {
+            return copy
+        }
+        if let fallback = item.fallbackIcon, let copy = fallback.copy() as? NSImage {
             copy.size = NSSize(width: 18, height: 18)
-            button.image = copy
-        } else {
-            button.image = NSImage(systemSymbolName: "app.dashed", accessibilityDescription: nil)
+            return copy
         }
-    }
-
-    private func stableSuffix(of key: String) -> String {
-        // djb2 — stable across launches, unlike Hashable.hashValue.
-        var hash: UInt64 = 5381
-        for byte in key.utf8 {
-            hash = hash &* 33 &+ UInt64(byte)
-        }
-        return String(hash, radix: 36)
+        return NSImage(systemSymbolName: "app.dashed", accessibilityDescription: nil)
     }
 
     // MARK: - Clicks
 
-    @objc private func proxyClicked(_ sender: NSStatusBarButton) {
-        guard let (key, _) = proxies.first(where: { $0.value.button === sender }),
-              let item = currentItems[key]
-        else { return }
-
-        if NSApp.currentEvent?.type == .rightMouseUp {
-            let menu = NSMenu()
-            let unpinItem = NSMenuItem(title: L("pin.unpin"), action: #selector(unpinClicked(_:)), keyEquivalent: "")
-            unpinItem.target = self
-            unpinItem.representedObject = key
-            menu.addItem(unpinItem)
-            menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.maxY + 4), in: sender)
-        } else {
-            statusBar?.forwardClick(to: item)
-        }
+    @objc private func pinLeftClicked(_ sender: NSButton) {
+        guard let key = sender.identifier?.rawValue else { return }
+        let option = NSApp.currentEvent?.modifierFlags.contains(.option) ?? false
+        handleClick(key: key, right: false, option: option)
     }
 
-    @objc private func unpinClicked(_ sender: NSMenuItem) {
-        guard let key = sender.representedObject as? String else { return }
-        unpin(key: key)
+    private func handleClick(key: String, right: Bool, option: Bool) {
+        if option {
+            unpin(key: key)
+            return
+        }
+        guard let item = currentItems[key] else { return }
+        statusBar?.forwardClick(to: item, rightButton: right)
+    }
+}
+
+/// NSButton that also reports right clicks (NSButton ignores them natively).
+final class PinButton: NSButton {
+    var onRightClick: ((_ optionHeld: Bool) -> Void)?
+
+    override func rightMouseUp(with event: NSEvent) {
+        onRightClick?(event.modifierFlags.contains(.option))
     }
 }
