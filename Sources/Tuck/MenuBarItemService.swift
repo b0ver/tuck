@@ -52,6 +52,9 @@ enum MenuBarItemService {
             guard rect.width <= 600 else { continue }
 
             let title = (info[kCGWindowName as String] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            // Skip Tuck's own items (toggle, separator, pinned proxies) —
+            // their window titles carry our autosave names.
+            if let title, title.hasPrefix("tuck.") { continue }
             items.append(BarItem(id: CGWindowID(info[kCGWindowNumber as String] as? Int ?? 0),
                                  frame: rect, title: title, image: nil))
         }
@@ -120,11 +123,73 @@ enum MenuBarItemService {
                 width: item.frame.width * actualScale,
                 height: item.frame.height * actualScale
             ).integral
-            if let crop = strip.cropping(to: pixelRect) {
-                previews[item.id] = NSImage(cgImage: crop, size: item.frame.size)
-            }
+            guard let crop = strip.cropping(to: pixelRect) else { continue }
+            // Items that did not fit in the menu bar (e.g. tucked under the
+            // notch) have valid frames but render nothing — a uniform slice.
+            // Skipping them keeps stale-but-real previews in the cache.
+            guard !isUniformSlice(crop) else { continue }
+            previews[item.id] = NSImage(cgImage: crop, size: item.frame.size)
         }
         return previews
+    }
+
+    /// True when the image is (nearly) a solid color — i.e. an empty slice.
+    private static func isUniformSlice(_ image: CGImage) -> Bool {
+        let w = 12, h = 12
+        var pixels = [UInt8](repeating: 0, count: w * h)
+        guard let ctx = CGContext(
+            data: &pixels, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w,
+            space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue
+        ) else { return false }
+        ctx.interpolationQuality = .medium
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+        guard let minVal = pixels.min(), let maxVal = pixels.max() else { return false }
+        return maxVal - minVal < 12
+    }
+
+    // MARK: - Item identity (for pinning)
+
+    /// A best-effort stable key for a status item across app launches.
+    /// Window titles are mostly the useless "Item-0" on macOS 26, so fall
+    /// back to a perceptual hash of the icon's snapshot.
+    static func identityKey(for item: BarItem) -> String {
+        if let title = item.title, !title.isEmpty, title != "Item-0" {
+            return "t:" + title
+        }
+        if let image = item.image, let hash = averageHash(image) {
+            return "h:" + hash
+        }
+        return "w:\(Int(item.frame.width.rounded()))"
+    }
+
+    /// Whether a candidate key matches a stored pin key. Hash keys compare
+    /// fuzzily so a changing badge (e.g. an unread counter) keeps the pin.
+    static func keysMatch(_ stored: String, _ candidate: String) -> Bool {
+        if stored == candidate { return true }
+        guard stored.hasPrefix("h:"), candidate.hasPrefix("h:"),
+              let a = UInt64(stored.dropFirst(2), radix: 16),
+              let b = UInt64(candidate.dropFirst(2), radix: 16)
+        else { return false }
+        return (a ^ b).nonzeroBitCount <= 12
+    }
+
+    /// 64-bit average hash of the image (8×8 grayscale, thresholded at mean).
+    private static func averageHash(_ image: NSImage) -> String? {
+        guard let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+        let w = 8, h = 8
+        var pixels = [UInt8](repeating: 0, count: w * h)
+        guard let ctx = CGContext(
+            data: &pixels, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w,
+            space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue
+        ) else { return nil }
+        ctx.interpolationQuality = .medium
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+        let average = pixels.reduce(0) { $0 + Int($1) } / (w * h)
+        var bits: UInt64 = 0
+        for (i, p) in pixels.enumerated() where Int(p) > average {
+            bits |= (1 << UInt64(i))
+        }
+        return String(bits, radix: 16)
     }
 
     // MARK: - Click forwarding

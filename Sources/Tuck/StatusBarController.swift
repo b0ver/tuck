@@ -12,6 +12,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     private(set) var isCollapsed = false
 
     private let panel = HiddenItemsPanelController()
+    let pins = PinnedItemsController()
     private var autoCollapseTimer: Timer?
     private var menuDismissMonitor: Any?
 
@@ -21,6 +22,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     // MARK: - Setup
 
     func setUp() {
+        pins.statusBar = self
         seedPreferredPositionsIfNeeded()
 
         separatorItem = bar.statusItem(withLength: expandedSeparatorLength)
@@ -107,6 +109,11 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         separatorItem.length = collapsedSeparatorLength
         updateToggleImage()
         cancelAutoCollapse()
+        // Hidden items reach their off-screen positions a beat after the
+        // separator grows; refresh pinned proxies once they have.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            self?.pins.refresh()
+        }
     }
 
     func expand(startAutoCollapseTimer: Bool = true) {

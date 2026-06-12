@@ -83,6 +83,7 @@ private struct GeneralTab: View {
 private struct BehaviorTab: View {
     @AppStorage(Prefs.Key.revealStyle) private var revealStyle = RevealStyle.panel.rawValue
     @AppStorage(Prefs.Key.autoCollapseSeconds) private var autoCollapse = 15.0
+    @AppStorage(Prefs.Key.panelIconsPerRow) private var iconsPerRow = 10
 
     private let delays: [Double] = [0, 5, 10, 15, 30, 60]
 
@@ -105,6 +106,15 @@ private struct BehaviorTab: View {
                         }
                     }
                 }
+                Stepper(value: $iconsPerRow, in: 4...20) {
+                    HStack {
+                        Text(L("behavior.iconsPerRow"))
+                        Spacer()
+                        Text("\(iconsPerRow)")
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                }
             }
             Section {
                 Label {
@@ -115,10 +125,18 @@ private struct BehaviorTab: View {
                     Image(systemName: "option")
                         .foregroundStyle(.tint)
                 }
+                Label {
+                    Text(L("pin.hint"))
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                } icon: {
+                    Image(systemName: "pin")
+                        .foregroundStyle(.tint)
+                }
             }
         }
         .formStyle(.grouped)
-        .frame(height: 320)
+        .frame(height: 400)
     }
 }
 

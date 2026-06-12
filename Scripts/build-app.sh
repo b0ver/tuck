@@ -37,7 +37,17 @@ if [ -d "$BIN_PATH/${APP_NAME}_${APP_NAME}.bundle" ]; then
 fi
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 
-echo "==> Code signing (ad-hoc)…"
-codesign --force --deep --sign - "$APP"
+# Prefer a stable local identity ("Tuck Local Signing", a self-signed cert):
+# TCC permissions (Screen Recording, Accessibility) are keyed to the code
+# signature, and ad-hoc signatures change on every build, which would force
+# the user to re-grant after each rebuild. Falls back to ad-hoc (e.g. on CI).
+if security find-identity 2>/dev/null | grep -q "Tuck Local Signing"; then
+    SIGN_IDENTITY="Tuck Local Signing"
+    echo "==> Code signing (Tuck Local Signing)…"
+else
+    SIGN_IDENTITY="-"
+    echo "==> Code signing (ad-hoc)…"
+fi
+codesign --force --deep --sign "$SIGN_IDENTITY" "$APP"
 
 echo "==> Done: ${APP}"

@@ -34,6 +34,13 @@
 "behavior.autocollapse.never" = "Never";
 "behavior.seconds" = "After %d sec";
 "behavior.hint" = "⌥-click the Tuck icon to use the alternate reveal style.";
+"behavior.iconsPerRow" = "Icons per row in the panel";
+
+/* Pinning */
+"pin.pin" = "Pin next to Tuck";
+"pin.unpin" = "Unpin";
+"pin.tooltip" = "Pinned by Tuck — click to activate, right-click to unpin";
+"pin.hint" = "Right-click an icon in the panel to pin it: a live copy stays visible next to the Tuck button and forwards your clicks.";
 
 "perm.screen" = "Screen Recording";
 "perm.screen.desc" = "Shows live previews of hidden icons in the panel.";

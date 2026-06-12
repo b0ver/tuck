@@ -38,6 +38,9 @@ final class HiddenItemsPanelController: NSObject {
                 _ = applyCache()
             }
 
+            // Pinned icons already live next to the Tuck button as proxies.
+            items.removeAll { controller.pins.isPinned($0) }
+
             self.presentPanel(items: items, controller: controller)
         }
     }
@@ -53,10 +56,15 @@ final class HiddenItemsPanelController: NSObject {
 
         let view = HiddenItemsPanelView(
             items: items,
+            iconsPerRow: Prefs.shared.panelIconsPerRow,
             needsPermission: needsPermission,
             onClick: { [weak self, weak controller] item in
                 self?.close()
                 controller?.forwardClick(to: item)
+            },
+            onPin: { [weak self, weak controller] item in
+                self?.close()
+                controller?.pins.pin(item)
             },
             onGrantPermission: { [weak self] in
                 self?.close()
@@ -151,10 +159,19 @@ final class HiddenItemsPanelController: NSObject {
 
 struct HiddenItemsPanelView: View {
     let items: [BarItem]
+    let iconsPerRow: Int
     let needsPermission: Bool
     let onClick: (BarItem) -> Void
+    let onPin: (BarItem) -> Void
     let onGrantPermission: () -> Void
     let onRestart: () -> Void
+
+    private var rows: [[BarItem]] {
+        let perRow = max(1, iconsPerRow)
+        return stride(from: 0, to: items.count, by: perRow).map {
+            Array(items[$0..<min($0 + perRow, items.count)])
+        }
+    }
 
     var body: some View {
         Group {
@@ -179,9 +196,17 @@ struct HiddenItemsPanelView: View {
                 }
                 .padding(14)
             } else {
-                HStack(spacing: 2) {
-                    ForEach(items) { item in
-                        PanelIconButton(item: item) { onClick(item) }
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                        HStack(spacing: 2) {
+                            ForEach(row) { item in
+                                PanelIconButton(
+                                    item: item,
+                                    action: { onClick(item) },
+                                    pinAction: { onPin(item) }
+                                )
+                            }
+                        }
                     }
                 }
                 .padding(7)
@@ -193,6 +218,7 @@ struct HiddenItemsPanelView: View {
 private struct PanelIconButton: View {
     let item: BarItem
     let action: () -> Void
+    let pinAction: () -> Void
     @State private var hovering = false
 
     var body: some View {
@@ -209,6 +235,11 @@ private struct PanelIconButton: View {
         .buttonStyle(.plain)
         .help(item.title ?? "")
         .onHover { hovering = $0 }
+        .contextMenu {
+            Button(action: pinAction) {
+                Label(L("pin.pin"), systemImage: "pin")
+            }
+        }
     }
 
     @ViewBuilder

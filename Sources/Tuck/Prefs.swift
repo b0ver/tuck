@@ -18,6 +18,8 @@ final class Prefs {
         static let showSeparator = "showSeparator"
         static let isFirstLaunch = "isFirstLaunch"
         static let didSeedPositions = "didSeedPositions"
+        static let panelIconsPerRow = "panelIconsPerRow"
+        static let pinnedItems = "pinnedItems"
     }
 
     static func registerDefaults() {
@@ -27,7 +29,20 @@ final class Prefs {
             Key.startCollapsed: true,
             Key.showSeparator: true,
             Key.isFirstLaunch: true,
+            Key.panelIconsPerRow: 10,
         ])
+    }
+
+    /// Maximum icons per row in the drop-down panel.
+    var panelIconsPerRow: Int {
+        get { max(1, d.integer(forKey: Key.panelIconsPerRow)) }
+        set { d.set(newValue, forKey: Key.panelIconsPerRow) }
+    }
+
+    /// Identity keys of icons pinned as proxies next to the Tuck button.
+    var pinnedItems: [String] {
+        get { d.stringArray(forKey: Key.pinnedItems) ?? [] }
+        set { d.set(newValue, forKey: Key.pinnedItems) }
     }
 
     var revealStyle: RevealStyle {
