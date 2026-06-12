@@ -9,13 +9,36 @@ final class HiddenItemsPanelController: NSObject {
 
     var isShown: Bool { panel?.isVisible ?? false }
 
-    /// Must be called while the bar is collapsed: hidden items are enumerated
-    /// and captured in place (off-screen), so the bar never flashes open.
+    /// Must be called while the bar is collapsed. Previews come from the
+    /// controller's cache (snapshotted while the icons were visible); if the
+    /// cache has nothing for the current items — e.g. Screen Recording was
+    /// granted only after launch — self-heal with one brief expand/collapse.
     func show(from controller: StatusBarController) {
         Task { @MainActor in
-            let items = MenuBarItemService.hiddenItemsWhileCollapsed()
-            let captured = await MenuBarItemService.captureImages(for: items)
-            self.presentPanel(items: captured, controller: controller)
+            var items = MenuBarItemService.hiddenItemsWhileCollapsed()
+
+            func applyCache() -> Bool {
+                var any = false
+                items = items.map { item in
+                    var item = item
+                    item.image = controller.previewCache[item.id]
+                    any = any || item.image != nil
+                    return item
+                }
+                return any
+            }
+
+            if !applyCache() && !items.isEmpty {
+                controller.expand(startAutoCollapseTimer: false)
+                try? await Task.sleep(nanoseconds: 400_000_000)
+                await controller.refreshPreviewCache()
+                controller.collapseWithoutCapture()
+                try? await Task.sleep(nanoseconds: 250_000_000)
+                items = MenuBarItemService.hiddenItemsWhileCollapsed()
+                _ = applyCache()
+            }
+
+            self.presentPanel(items: items, controller: controller)
         }
     }
 

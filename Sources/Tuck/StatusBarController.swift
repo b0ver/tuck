@@ -46,10 +46,13 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         )
 
         applySeparatorVisibility()
+        updateToggleImage()
         if Prefs.shared.startCollapsed {
-            collapse()
-        } else {
-            updateToggleImage()
+            // Give the status bar a moment to settle, then collapse() — it
+            // snapshots the visible icons into the preview cache first.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+                self?.collapse()
+            }
         }
     }
 
@@ -63,9 +66,42 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         d.set(40, forKey: "NSStatusItem Preferred Position tuck.separator")
     }
 
+    // MARK: - Preview cache
+
+    /// Latest snapshots of menu bar icons, keyed by window id. Refreshed
+    /// whenever the icons are visible (launch, every collapse), because
+    /// display capture cannot see them once they are pushed off-screen.
+    private(set) var previewCache: [CGWindowID: NSImage] = [:]
+
+    @MainActor
+    func refreshPreviewCache() async {
+        let visible = MenuBarItemService.visibleItems()
+        let captured = await MenuBarItemService.capturePreviews(of: visible)
+        if !captured.isEmpty {
+            previewCache.merge(captured) { _, new in new }
+        }
+    }
+
     // MARK: - Collapse / expand
 
+    /// Snapshot the visible icons for the panel previews, then hide them.
     func collapse() {
+        if isCollapsed {
+            applyCollapsedState()
+            return
+        }
+        Task { @MainActor in
+            await refreshPreviewCache()
+            self.applyCollapsedState()
+        }
+    }
+
+    /// Hide immediately without refreshing the preview cache.
+    func collapseWithoutCapture() {
+        applyCollapsedState()
+    }
+
+    private func applyCollapsedState() {
         panel.close()
         isCollapsed = true
         separatorItem.length = collapsedSeparatorLength
@@ -131,16 +167,18 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     }
 
     /// The panel enumerates hidden items in their off-screen (collapsed)
-    /// positions, so make sure the bar is collapsed before showing it.
+    /// positions, so make sure the bar is collapsed before showing it —
+    /// refreshing the preview cache on the way since the icons are visible.
     private func showPanelCollapsingFirst() {
         if isCollapsed {
             panel.show(from: self)
-        } else {
-            collapse()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
-                guard let self else { return }
-                self.panel.show(from: self)
-            }
+            return
+        }
+        Task { @MainActor in
+            await refreshPreviewCache()
+            collapseWithoutCapture()
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            panel.show(from: self)
         }
     }
 

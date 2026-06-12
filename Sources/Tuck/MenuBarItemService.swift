@@ -25,6 +25,15 @@ enum MenuBarItemService {
     /// expand the bar: the huge separator has already pushed them off-screen
     /// to negative x, where they are still listed by CGWindowList.
     static func hiddenItemsWhileCollapsed() -> [BarItem] {
+        menuBarItems().filter { $0.frame.maxX < 0 }
+    }
+
+    /// Status items currently visible on screen (positive x).
+    static func visibleItems() -> [BarItem] {
+        menuBarItems().filter { $0.frame.minX >= 0 }
+    }
+
+    private static func menuBarItems() -> [BarItem] {
         guard let list = CGWindowListCopyWindowInfo([], kCGNullWindowID) as? [[String: Any]] else {
             return []
         }
@@ -41,8 +50,6 @@ enum MenuBarItemService {
             guard rect.minY <= 1, (20...40).contains(rect.height) else { continue }
             // Skip our own giant separator and any other oversized window.
             guard rect.width <= 600 else { continue }
-            // Hidden items sit entirely off the left screen edge.
-            guard rect.maxX < 0 else { continue }
 
             let title = (info[kCGWindowName as String] as? String).flatMap { $0.isEmpty ? nil : $0 }
             items.append(BarItem(id: CGWindowID(info[kCGWindowNumber as String] as? Int ?? 0),
@@ -68,38 +75,56 @@ enum MenuBarItemService {
         CGPreflightScreenCaptureAccess()
     }
 
-    /// Capture live previews for the given items via ScreenCaptureKit.
-    /// Window-based capture works even while the items are pushed off-screen,
-    /// so the bar never has to expand for the panel. Items keep `image == nil`
-    /// when capture is unavailable.
+    /// Capture previews of the currently visible status items by photographing
+    /// the menu bar strip of the main display once and slicing it per item.
+    ///
+    /// Per-window ScreenCaptureKit capture fails for menu bar item windows on
+    /// macOS 26 (SCStreamError -3811), so display capture is the only reliable
+    /// path. It can only see on-screen items, which is why the cache is built
+    /// while the bar is expanded (at launch and right before each collapse).
     ///
     /// Deliberately does NOT gate on CGPreflightScreenCaptureAccess: on
     /// macOS 26 the preflight can report false negatives, so we always try
     /// and let the result speak for itself.
-    static func captureImages(for items: [BarItem]) async -> [BarItem] {
-        guard !items.isEmpty else { return items }
-        // onScreenWindowsOnly must be false: menu bar item windows are always
-        // reported as off-screen on macOS 26.
-        guard let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false) else {
-            return items
+    static func capturePreviews(of items: [BarItem]) async -> [CGWindowID: NSImage] {
+        let onScreen = items.filter { $0.frame.minX >= 0 }
+        guard !onScreen.isEmpty else { return [:] }
+        guard
+            let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false),
+            let display = content.displays.first(where: { $0.displayID == CGMainDisplayID() })
+                ?? content.displays.first
+        else { return [:] }
+
+        let displayWidth = CGFloat(display.width)
+        let stripHeight = (onScreen.map { $0.frame.maxY }.max() ?? 30) + 2
+        let scale: CGFloat = 2
+
+        let filter = SCContentFilter(display: display, excludingWindows: [])
+        let config = SCStreamConfiguration()
+        config.sourceRect = CGRect(x: 0, y: 0, width: displayWidth, height: stripHeight)
+        config.width = Int(displayWidth * scale)
+        config.height = Int(stripHeight * scale)
+        config.showsCursor = false
+        config.captureResolution = .best
+
+        guard let strip = try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config) else {
+            return [:]
         }
 
-        var result: [BarItem] = []
-        for var item in items {
-            if let scWindow = content.windows.first(where: { $0.windowID == item.id }) {
-                let filter = SCContentFilter(desktopIndependentWindow: scWindow)
-                let config = SCStreamConfiguration()
-                config.width = Int(item.frame.width * 2)
-                config.height = Int(item.frame.height * 2)
-                config.showsCursor = false
-                config.captureResolution = .best
-                if let cgImage = try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config) {
-                    item.image = NSImage(cgImage: cgImage, size: item.frame.size)
-                }
+        let actualScale = CGFloat(strip.width) / displayWidth
+        var previews: [CGWindowID: NSImage] = [:]
+        for item in onScreen {
+            let pixelRect = CGRect(
+                x: item.frame.minX * actualScale,
+                y: item.frame.minY * actualScale,
+                width: item.frame.width * actualScale,
+                height: item.frame.height * actualScale
+            ).integral
+            if let crop = strip.cropping(to: pixelRect) {
+                previews[item.id] = NSImage(cgImage: crop, size: item.frame.size)
             }
-            result.append(item)
         }
-        return result
+        return previews
     }
 
     // MARK: - Click forwarding
