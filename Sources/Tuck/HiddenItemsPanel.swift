@@ -8,13 +8,17 @@ final class HiddenItemsPanelController: NSObject {
     private var outsideClickMonitor: Any?
 
     var isShown: Bool { panel?.isVisible ?? false }
+    private(set) var isPreparing = false
 
     /// Must be called while the bar is collapsed. Previews come from the
     /// controller's cache (snapshotted while the icons were visible); if the
     /// cache has nothing for the current items — e.g. Screen Recording was
     /// granted only after launch — self-heal with one brief expand/collapse.
     func show(from controller: StatusBarController) {
+        guard !isPreparing else { return }
+        isPreparing = true
         Task { @MainActor in
+            defer { self.isPreparing = false }
             var items = MenuBarItemService.hiddenItemsWhileCollapsed()
 
             func applyCache() -> Bool {

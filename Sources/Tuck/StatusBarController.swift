@@ -15,6 +15,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     let pins = PinnedItemsController()
     private var autoCollapseTimer: Timer?
     private var menuDismissMonitor: Any?
+    private var menuDismissLocalMonitor: Any?
 
     private let expandedSeparatorLength: CGFloat = 14
     private let collapsedSeparatorLength: CGFloat = 10_000
@@ -123,6 +124,12 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         if startAutoCollapseTimer {
             scheduleAutoCollapse()
         }
+        // The icons are visible now — opportunistically refresh previews.
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            guard !self.isCollapsed else { return }
+            await self.refreshPreviewCache()
+        }
     }
 
     func toggleCollapse() {
@@ -208,30 +215,45 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     }
 
     /// Collapse shortly after the user's next click anywhere (which dismisses
-    /// whatever menu the forwarded click opened). Falls back to a timer.
+    /// whatever menu the forwarded click opened). Global monitors do not see
+    /// clicks on our own UI, so a local monitor covers those. Falls back to a
+    /// timer in case no click ever arrives.
     private func collapseAfterNextGlobalClick() {
-        removeMenuDismissMonitor()
-        menuDismissMonitor = NSEvent.addGlobalMonitorForEvents(
-            matching: [.leftMouseDown, .rightMouseDown]
-        ) { [weak self] _ in
+        removeMenuDismissMonitors()
+        let trigger: () -> Void = { [weak self] in
             guard let self else { return }
-            self.removeMenuDismissMonitor()
+            self.removeMenuDismissMonitors()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                // Don't fight the panel: if the click that dismissed the
+                // forwarded menu was the user opening the panel, let it be.
+                guard !self.panel.isShown, !self.panel.isPreparing else { return }
                 self.collapse()
             }
         }
-        // Fallback in case no click ever arrives.
+        menuDismissMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown]
+        ) { _ in trigger() }
+        menuDismissLocalMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown]
+        ) { event in
+            trigger()
+            return event
+        }
         autoCollapseTimer?.invalidate()
-        autoCollapseTimer = Timer.scheduledTimer(withTimeInterval: 45, repeats: false) { [weak self] _ in
-            self?.removeMenuDismissMonitor()
+        autoCollapseTimer = Timer.scheduledTimer(withTimeInterval: 12, repeats: false) { [weak self] _ in
+            self?.removeMenuDismissMonitors()
             self?.collapse()
         }
     }
 
-    private func removeMenuDismissMonitor() {
+    private func removeMenuDismissMonitors() {
         if let monitor = menuDismissMonitor {
             NSEvent.removeMonitor(monitor)
             menuDismissMonitor = nil
+        }
+        if let monitor = menuDismissLocalMonitor {
+            NSEvent.removeMonitor(monitor)
+            menuDismissLocalMonitor = nil
         }
     }
 

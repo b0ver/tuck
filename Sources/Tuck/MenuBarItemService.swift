@@ -78,6 +78,13 @@ enum MenuBarItemService {
         CGPreflightScreenCaptureAccess()
     }
 
+    // NOTE: per-window capture is a dead end on macOS 26 — ScreenCaptureKit's
+    // desktopIndependentWindow filter fails with SCStreamError -3811, and the
+    // private SLSHWCaptureWindowList returns fully transparent images for menu
+    // bar item windows (their content is composited by Control Center).
+    // Capturing the menu bar strip of the display and slicing it is the only
+    // path that works; it requires the items to be on screen.
+
     /// Capture previews of the currently visible status items by photographing
     /// the menu bar strip of the main display once and slicing it per item.
     ///
