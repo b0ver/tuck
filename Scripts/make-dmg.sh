@@ -17,8 +17,8 @@ trap 'rm -rf "$STAGING"' EXIT
 cp -R "$APP" "$STAGING/"
 ln -s /Applications "$STAGING/Applications"
 
-echo "==> Creating $DMG…"
+echo "==> Creating ${DMG} ..."
 rm -f "$DMG"
 hdiutil create -volname "$APP_NAME" -srcfolder "$STAGING" -ov -format UDZO -quiet "$DMG"
 
-echo "==> Done: $DMG"
+echo "==> Done: ${DMG}"

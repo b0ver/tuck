@@ -25,7 +25,7 @@ if [ ! -f Build/AppIcon.icns ]; then
     iconutil -c icns Build/AppIcon.iconset -o Build/AppIcon.icns
 fi
 
-echo "==> Assembling $APP…"
+echo "==> Assembling ${APP} ..."
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN_PATH/$APP_NAME" "$APP/Contents/MacOS/$APP_NAME"
@@ -40,4 +40,4 @@ printf 'APPL????' > "$APP/Contents/PkgInfo"
 echo "==> Code signing (ad-hoc)…"
 codesign --force --deep --sign - "$APP"
 
-echo "==> Done: $APP"
+echo "==> Done: ${APP}"
