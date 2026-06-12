@@ -72,8 +72,12 @@ enum MenuBarItemService {
     /// Window-based capture works even while the items are pushed off-screen,
     /// so the bar never has to expand for the panel. Items keep `image == nil`
     /// when capture is unavailable.
+    ///
+    /// Deliberately does NOT gate on CGPreflightScreenCaptureAccess: on
+    /// macOS 26 the preflight can report false negatives, so we always try
+    /// and let the result speak for itself.
     static func captureImages(for items: [BarItem]) async -> [BarItem] {
-        guard hasScreenCaptureAccess, !items.isEmpty else { return items }
+        guard !items.isEmpty else { return items }
         // onScreenWindowsOnly must be false: menu bar item windows are always
         // reported as off-screen on macOS 26.
         guard let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false) else {

@@ -23,8 +23,10 @@ final class HiddenItemsPanelController: NSObject {
     private func presentPanel(items: [BarItem], controller: StatusBarController) {
         close()
 
+        // Only claim a permission problem when nothing could be captured at
+        // all — the preflight API alone is not trustworthy on macOS 26.
         let needsPermission = !items.isEmpty
-            && !MenuBarItemService.hasScreenCaptureAccess
+            && items.allSatisfy { $0.image == nil }
 
         let view = HiddenItemsPanelView(
             items: items,
@@ -38,6 +40,9 @@ final class HiddenItemsPanelController: NSObject {
                 CGRequestScreenCaptureAccess()
                 let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!
                 NSWorkspace.shared.open(url)
+            },
+            onRestart: {
+                Self.relaunchApp()
             }
         )
 
@@ -107,6 +112,16 @@ final class HiddenItemsPanelController: NSObject {
         panel?.orderOut(nil)
         panel = nil
     }
+
+    /// Screen Recording permission only takes effect after a relaunch.
+    private static func relaunchApp() {
+        let path = Bundle.main.bundlePath
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/bin/sh")
+        task.arguments = ["-c", "sleep 0.5; /usr/bin/open \"\(path)\""]
+        try? task.run()
+        NSApp.terminate(nil)
+    }
 }
 
 // MARK: - SwiftUI content
@@ -116,6 +131,7 @@ struct HiddenItemsPanelView: View {
     let needsPermission: Bool
     let onClick: (BarItem) -> Void
     let onGrantPermission: () -> Void
+    let onRestart: () -> Void
 
     var body: some View {
         Group {
@@ -134,6 +150,8 @@ struct HiddenItemsPanelView: View {
                         .frame(maxWidth: 250)
                         .multilineTextAlignment(.center)
                     Button(L("panel.permission.button"), action: onGrantPermission)
+                        .controlSize(.small)
+                    Button(L("panel.permission.restart"), action: onRestart)
                         .controlSize(.small)
                 }
                 .padding(14)
