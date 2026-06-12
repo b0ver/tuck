@@ -1,58 +1,54 @@
 import AppKit
 import ScreenCaptureKit
 
-/// A third-party status item living in the menu bar.
+/// A status item living in the menu bar.
+///
+/// Note for macOS 26+: every menu bar item window is owned by the Control
+/// Center process, not by the app that created it, and all of them are
+/// reported as off-screen by CGWindowList. So we enumerate without the
+/// on-screen filter and identify hidden items purely by geometry: while Tuck
+/// is collapsed, the expanded separator pushes them to strongly negative x.
 struct BarItem: Identifiable {
     let id: CGWindowID
-    let pid: pid_t
     /// Global display coordinates (top-left origin), as reported by CGWindowList.
     let frame: CGRect
-    let appName: String
+    /// Window title if readable (requires Screen Recording permission).
+    let title: String?
     /// Live screenshot of the item, when Screen Recording permission is granted.
     var image: NSImage?
-
-    var appIcon: NSImage? {
-        NSRunningApplication(processIdentifier: pid)?.icon
-    }
 }
 
 enum MenuBarItemService {
     private static let statusItemWindowLayer = 25 // kCGStatusWindowLevel
 
-    /// All third-party status item windows on the main display, left to right.
-    static func statusItems() -> [BarItem] {
-        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else {
+    /// Hidden status items, enumerated while Tuck is collapsed — no need to
+    /// expand the bar: the huge separator has already pushed them off-screen
+    /// to negative x, where they are still listed by CGWindowList.
+    static func hiddenItemsWhileCollapsed() -> [BarItem] {
+        guard let list = CGWindowListCopyWindowInfo([], kCGNullWindowID) as? [[String: Any]] else {
             return []
         }
-        let mainScreen = NSScreen.screens.first { $0.frame.origin == .zero } ?? NSScreen.main
-        guard let screen = mainScreen else { return [] }
-        let screenWidth = screen.frame.width
-        let ownPID = getpid()
 
         var items: [BarItem] = []
         for info in list {
             guard
                 let layer = info[kCGWindowLayer as String] as? Int, layer == statusItemWindowLayer,
-                let pid = info[kCGWindowOwnerPID as String] as? pid_t, pid != ownPID,
                 let boundsDict = info[kCGWindowBounds as String],
                 let rect = CGRect(dictionaryRepresentation: boundsDict as! CFDictionary)
             else { continue }
 
-            // Keep only items in the main display's menu bar.
-            guard rect.minY <= 1, rect.height <= 40, rect.width <= 600 else { continue }
-            guard rect.minX >= -50, rect.maxX <= screenWidth + 50 else { continue }
+            // Menu bar geometry only.
+            guard rect.minY <= 1, (20...40).contains(rect.height) else { continue }
+            // Skip our own giant separator and any other oversized window.
+            guard rect.width <= 600 else { continue }
+            // Hidden items sit entirely off the left screen edge.
+            guard rect.maxX < 0 else { continue }
 
-            let name = info[kCGWindowOwnerName as String] as? String ?? "?"
+            let title = (info[kCGWindowName as String] as? String).flatMap { $0.isEmpty ? nil : $0 }
             items.append(BarItem(id: CGWindowID(info[kCGWindowNumber as String] as? Int ?? 0),
-                                 pid: pid, frame: rect, appName: name, image: nil))
+                                 frame: rect, title: title, image: nil))
         }
         return items.sorted { $0.frame.minX < $1.frame.minX }
-    }
-
-    /// Items the user dragged into the hidden section (left of the separator).
-    /// Must be called while the bar is expanded.
-    static func hiddenItems(leftOf separatorX: CGFloat) -> [BarItem] {
-        statusItems().filter { $0.frame.midX < separatorX }
     }
 
     /// Fresh frame of a status item window (it moves when the bar expands).
@@ -73,10 +69,14 @@ enum MenuBarItemService {
     }
 
     /// Capture live previews for the given items via ScreenCaptureKit.
-    /// Items keep `image == nil` when capture is unavailable.
+    /// Window-based capture works even while the items are pushed off-screen,
+    /// so the bar never has to expand for the panel. Items keep `image == nil`
+    /// when capture is unavailable.
     static func captureImages(for items: [BarItem]) async -> [BarItem] {
         guard hasScreenCaptureAccess, !items.isEmpty else { return items }
-        guard let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true) else {
+        // onScreenWindowsOnly must be false: menu bar item windows are always
+        // reported as off-screen on macOS 26.
+        guard let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false) else {
             return items
         }
 

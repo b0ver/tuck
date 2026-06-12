@@ -9,40 +9,37 @@ final class HiddenItemsPanelController: NSObject {
 
     var isShown: Bool { panel?.isVisible ?? false }
 
+    /// Must be called while the bar is collapsed: hidden items are enumerated
+    /// and captured in place (off-screen), so the bar never flashes open.
     func show(from controller: StatusBarController) {
         Task { @MainActor in
-            await self.loadAndShow(controller: controller)
+            let items = MenuBarItemService.hiddenItemsWhileCollapsed()
+            let captured = await MenuBarItemService.captureImages(for: items)
+            self.presentPanel(items: captured, controller: controller)
         }
-    }
-
-    @MainActor
-    private func loadAndShow(controller: StatusBarController) async {
-        // The hidden items are off-screen while collapsed, so briefly expand
-        // to enumerate and screenshot them, then collapse back.
-        let wasCollapsed = controller.isCollapsed
-        if wasCollapsed {
-            controller.expand(startAutoCollapseTimer: false)
-            try? await Task.sleep(nanoseconds: 350_000_000)
-        }
-
-        let hidden = MenuBarItemService.hiddenItems(leftOf: controller.separatorScreenX)
-        let items = await MenuBarItemService.captureImages(for: hidden)
-
-        if wasCollapsed {
-            controller.collapse()
-        }
-
-        presentPanel(items: items, controller: controller)
     }
 
     @MainActor
     private func presentPanel(items: [BarItem], controller: StatusBarController) {
         close()
 
-        let view = HiddenItemsPanelView(items: items) { [weak self, weak controller] item in
-            self?.close()
-            controller?.forwardClick(to: item)
-        }
+        let needsPermission = !items.isEmpty
+            && !MenuBarItemService.hasScreenCaptureAccess
+
+        let view = HiddenItemsPanelView(
+            items: items,
+            needsPermission: needsPermission,
+            onClick: { [weak self, weak controller] item in
+                self?.close()
+                controller?.forwardClick(to: item)
+            },
+            onGrantPermission: { [weak self] in
+                self?.close()
+                CGRequestScreenCaptureAccess()
+                let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!
+                NSWorkspace.shared.open(url)
+            }
+        )
 
         let hosting = NSHostingView(rootView: view)
         hosting.frame.size = hosting.fittingSize
@@ -116,7 +113,9 @@ final class HiddenItemsPanelController: NSObject {
 
 struct HiddenItemsPanelView: View {
     let items: [BarItem]
+    let needsPermission: Bool
     let onClick: (BarItem) -> Void
+    let onGrantPermission: () -> Void
 
     var body: some View {
         Group {
@@ -127,6 +126,17 @@ struct HiddenItemsPanelView: View {
                     .frame(maxWidth: 260)
                     .multilineTextAlignment(.center)
                     .padding(14)
+            } else if needsPermission {
+                VStack(spacing: 8) {
+                    Text(L("panel.permission"))
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: 250)
+                        .multilineTextAlignment(.center)
+                    Button(L("panel.permission.button"), action: onGrantPermission)
+                        .controlSize(.small)
+                }
+                .padding(14)
             } else {
                 HStack(spacing: 2) {
                     ForEach(items) { item in
@@ -156,7 +166,7 @@ private struct PanelIconButton: View {
                 )
         }
         .buttonStyle(.plain)
-        .help(item.appName)
+        .help(item.title ?? "")
         .onHover { hovering = $0 }
     }
 
@@ -166,15 +176,11 @@ private struct PanelIconButton: View {
             Image(nsImage: image)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
-        } else if let icon = item.appIcon {
-            Image(nsImage: icon)
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 20, height: 20)
         } else {
             Image(systemName: "app.dashed")
                 .font(.system(size: 14))
                 .foregroundStyle(.secondary)
+                .frame(width: 22)
         }
     }
 }

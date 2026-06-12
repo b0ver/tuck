@@ -124,10 +124,22 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         case .panel:
             if panel.isShown {
                 panel.close()
-            } else if !isCollapsed {
-                collapse()
             } else {
-                panel.show(from: self)
+                showPanelCollapsingFirst()
+            }
+        }
+    }
+
+    /// The panel enumerates hidden items in their off-screen (collapsed)
+    /// positions, so make sure the bar is collapsed before showing it.
+    private func showPanelCollapsingFirst() {
+        if isCollapsed {
+            panel.show(from: self)
+        } else {
+            collapse()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+                guard let self else { return }
+                self.panel.show(from: self)
             }
         }
     }
@@ -217,8 +229,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     @objc private func menuToggle() { toggleCollapse() }
 
     @objc private func menuShowPanel() {
-        if !isCollapsed { collapse() }
-        panel.show(from: self)
+        showPanelCollapsingFirst()
     }
 
     @objc private func menuSettings() {
@@ -250,12 +261,6 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         let image = NSImage(systemSymbolName: name, accessibilityDescription: "Tuck")?
             .withSymbolConfiguration(.init(pointSize: 13, weight: .semibold))
         toggleItem.button?.image = image
-    }
-
-    /// Screen x-coordinate of the separator; items to the left of it form the
-    /// hidden section. Only meaningful while expanded.
-    var separatorScreenX: CGFloat {
-        separatorItem.button?.window?.frame.minX ?? 0
     }
 
     private static let separatorImage: NSImage = {

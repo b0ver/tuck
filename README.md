@@ -51,7 +51,7 @@ Requires macOS 14+ and Xcode Command Line Tools (Swift 5.9+). No Xcode project n
 
 ## How it works
 
-Tuck places two status items in the menu bar: a chevron and a divider. When collapsing, the divider's length is expanded to push everything left of it off-screen — the same battle-tested trick used by Hidden Bar and Ice. The drop-down panel briefly expands the bar, snapshots each hidden item's window via ScreenCaptureKit, collapses back, and forwards your clicks with synthesized mouse events.
+Tuck places two status items in the menu bar: a chevron and a divider. When collapsing, the divider's length is expanded to push everything left of it off-screen — the same battle-tested trick used by Hidden Bar and Ice. The drop-down panel snapshots each hidden item's window in place via ScreenCaptureKit window-based capture (it works even off-screen, so the bar never flashes open), and clicking a preview briefly expands the bar to forward a synthesized mouse click to the real item.
 
 ## Roadmap
 
