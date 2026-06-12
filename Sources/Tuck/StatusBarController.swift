@@ -78,11 +78,13 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
     @MainActor
     func refreshPreviewCache() async {
+        TuckLog.log("refreshPreviewCache (isCollapsed=\(isCollapsed))")
         let visible = MenuBarItemService.visibleItems()
         let captured = await MenuBarItemService.capturePreviews(of: visible)
         if !captured.isEmpty {
             previewCache.merge(captured) { _, new in new }
         }
+        TuckLog.log("cache now holds \(previewCache.count) previews")
     }
 
     // MARK: - Collapse / expand

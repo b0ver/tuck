@@ -19,44 +19,36 @@ final class HiddenItemsPanelController: NSObject {
         isPreparing = true
         Task { @MainActor in
             defer { self.isPreparing = false }
-            var items = MenuBarItemService.hiddenItemsWhileCollapsed()
-
-            func applyCache() -> Bool {
-                var any = false
-                items = items.map { item in
-                    var item = item
-                    item.image = controller.previewCache[item.id]
-                    any = any || item.image != nil
-                    return item
-                }
-                return any
+            var items = MenuBarItemService.annotateWithApps(
+                MenuBarItemService.hiddenItemsWhileCollapsed()
+            )
+            items = items.map { item in
+                var item = item
+                item.image = controller.previewCache[item.id]
+                return item
             }
 
-            if !applyCache() && !items.isEmpty {
-                controller.expand(startAutoCollapseTimer: false)
-                try? await Task.sleep(nanoseconds: 400_000_000)
-                await controller.refreshPreviewCache()
-                controller.collapseWithoutCapture()
-                try? await Task.sleep(nanoseconds: 250_000_000)
-                items = MenuBarItemService.hiddenItemsWhileCollapsed()
-                _ = applyCache()
-            }
+            let keys = MenuBarItemService.identityKeys(for: items)
 
             // Pinned icons already live next to the Tuck button as proxies.
-            items.removeAll { controller.pins.isPinned($0) }
+            let pinned = Prefs.shared.pinnedItems
+            items.removeAll { item in
+                guard let key = keys[item.id] else { return false }
+                return pinned.contains { MenuBarItemService.keysMatch($0, key) }
+            }
 
-            self.presentPanel(items: items, controller: controller)
+            self.presentPanel(items: items, keys: keys, controller: controller)
         }
     }
 
     @MainActor
-    private func presentPanel(items: [BarItem], controller: StatusBarController) {
+    private func presentPanel(items: [BarItem], keys: [CGWindowID: String], controller: StatusBarController) {
         close()
 
-        // Only claim a permission problem when nothing could be captured at
-        // all — the preflight API alone is not trustworthy on macOS 26.
+        // Suggest permissions only when we cannot identify anything at all:
+        // no captured pixels AND no app identity (= Accessibility missing).
         let needsPermission = !items.isEmpty
-            && items.allSatisfy { $0.image == nil }
+            && items.allSatisfy { $0.image == nil && $0.fallbackIcon == nil }
 
         let view = HiddenItemsPanelView(
             items: items,
@@ -68,12 +60,14 @@ final class HiddenItemsPanelController: NSObject {
             },
             onPin: { [weak self, weak controller] item in
                 self?.close()
-                controller?.pins.pin(item)
+                guard let key = keys[item.id] else { return }
+                controller?.pins.pin(key: key)
             },
             onGrantPermission: { [weak self] in
                 self?.close()
+                MenuBarItemService.requestAccessibilityAccess()
                 CGRequestScreenCaptureAccess()
-                let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!
+                let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
                 NSWorkspace.shared.open(url)
             },
             onRestart: {
@@ -237,7 +231,7 @@ private struct PanelIconButton: View {
                 )
         }
         .buttonStyle(.plain)
-        .help(item.title ?? "")
+        .help(item.displayTitle)
         .onHover { hovering = $0 }
         .contextMenu {
             Button(action: pinAction) {
@@ -252,6 +246,11 @@ private struct PanelIconButton: View {
             Image(nsImage: image)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
+        } else if let fallback = item.fallbackIcon {
+            Image(nsImage: fallback)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 19, height: 19)
         } else {
             Image(systemName: "app.dashed")
                 .font(.system(size: 14))

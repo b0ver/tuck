@@ -12,8 +12,7 @@ final class PinnedItemsController {
 
     // MARK: - Pin / unpin
 
-    func pin(_ item: BarItem) {
-        let key = MenuBarItemService.identityKey(for: item)
+    func pin(key: String) {
         var pinned = Prefs.shared.pinnedItems
         guard !pinned.contains(where: { MenuBarItemService.keysMatch($0, key) }) else { return }
         pinned.append(key)
@@ -30,11 +29,6 @@ final class PinnedItemsController {
         refresh()
     }
 
-    func isPinned(_ item: BarItem) -> Bool {
-        let key = MenuBarItemService.identityKey(for: item)
-        return Prefs.shared.pinnedItems.contains { MenuBarItemService.keysMatch($0, key) }
-    }
-
     // MARK: - Refresh
 
     /// Rebuild proxies from the current hidden items. Only meaningful while
@@ -42,11 +36,21 @@ final class PinnedItemsController {
     func refresh() {
         guard let statusBar, statusBar.isCollapsed else { return }
         let pinned = Prefs.shared.pinnedItems
+        guard !pinned.isEmpty || !proxies.isEmpty else { return }
+
+        var items = MenuBarItemService.annotateWithApps(
+            MenuBarItemService.hiddenItemsWhileCollapsed()
+        )
+        items = items.map { item in
+            var item = item
+            item.image = statusBar.previewCache[item.id]
+            return item
+        }
+        let keys = MenuBarItemService.identityKeys(for: items)
 
         var matches: [String: BarItem] = [:]
-        for var item in MenuBarItemService.hiddenItemsWhileCollapsed() {
-            item.image = statusBar.previewCache[item.id]
-            let key = MenuBarItemService.identityKey(for: item)
+        for item in items {
+            guard let key = keys[item.id] else { continue }
             if let storedKey = pinned.first(where: { MenuBarItemService.keysMatch($0, key) }) {
                 matches[storedKey] = item
             }
@@ -88,10 +92,14 @@ final class PinnedItemsController {
 
     private func updateImage(of proxy: NSStatusItem, with item: BarItem) {
         guard let button = proxy.button else { return }
+        button.toolTip = "\(item.displayTitle) — \(L("pin.tooltip"))"
         if let image = item.image, let copy = image.copy() as? NSImage {
             let height: CGFloat = 22
             let width = max(8, image.size.width * height / max(1, image.size.height))
             copy.size = NSSize(width: width, height: height)
+            button.image = copy
+        } else if let fallback = item.fallbackIcon, let copy = fallback.copy() as? NSImage {
+            copy.size = NSSize(width: 18, height: 18)
             button.image = copy
         } else {
             button.image = NSImage(systemSymbolName: "app.dashed", accessibilityDescription: nil)

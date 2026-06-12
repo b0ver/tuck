@@ -11,7 +11,7 @@
 
 /* Panel */
 "panel.empty" = "No hidden icons yet. Hold ⌘ and drag menu bar icons to the left of the Tuck divider.";
-"panel.permission" = "Allow Screen Recording to see live previews of your hidden icons here.";
+"panel.permission" = "Allow Accessibility (to identify and click icons) and Screen Recording (for live previews) in System Settings.";
 "panel.permission.button" = "Allow in System Settings…";
 "panel.permission.restart" = "I allowed it — restart Tuck";
 

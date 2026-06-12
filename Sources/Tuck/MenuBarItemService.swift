@@ -14,8 +14,63 @@ struct BarItem: Identifiable {
     let frame: CGRect
     /// Window title if readable (requires Screen Recording permission).
     let title: String?
-    /// Live screenshot of the item, when Screen Recording permission is granted.
+    /// Live screenshot of the item, when the system lets us capture one.
     var image: NSImage?
+    /// Owning app, resolved via the Accessibility API (AXExtrasMenuBar).
+    var appPID: pid_t?
+    var appBundleID: String?
+    var appName: String?
+    /// AX title/description of the item, e.g. "Battery", "FocusModes".
+    var axTitle: String?
+
+    var isControlCenterOwned: Bool { appBundleID == "com.apple.controlcenter" }
+
+    var displayTitle: String {
+        if let axTitle, !axTitle.isEmpty { return axTitle }
+        if let appName, !appName.isEmpty { return appName }
+        if let title, !title.isEmpty, title != "Item-0" { return title }
+        return "?"
+    }
+
+    var appIcon: NSImage? {
+        guard let appPID else { return nil }
+        return NSRunningApplication(processIdentifier: appPID)?.icon
+    }
+
+    /// Best identification image when no live screenshot is available:
+    /// the owning app's icon, or an SF Symbol for Control Center modules.
+    var fallbackIcon: NSImage? {
+        if !isControlCenterOwned, let icon = appIcon { return icon }
+        if let symbol = Self.symbolName(matching: displayTitle),
+           let img = NSImage(systemSymbolName: symbol, accessibilityDescription: displayTitle) {
+            return img.withSymbolConfiguration(.init(pointSize: 14, weight: .medium))
+        }
+        return appIcon
+    }
+
+    private static func symbolName(matching title: String) -> String? {
+        let t = title.lowercased()
+        let map: [(String, String)] = [
+            ("battery", "battery.100"),
+            ("focusmodes", "moon.fill"),
+            ("focus", "moon.fill"),
+            ("timemachine", "clock.arrow.circlepath"),
+            ("wifi", "wifi"),
+            ("bluetooth", "logo.bluetooth" ),
+            ("clock", "clock"),
+            ("sound", "speaker.wave.2.fill"),
+            ("audio", "speaker.wave.2.fill"),
+            ("display", "sun.max.fill"),
+            ("nowplaying", "play.circle.fill"),
+            ("airplay", "airplay.video"),
+            ("screenmirroring", "airplay.video"),
+            ("keyboardbrightness", "light.max"),
+            ("accessibility", "accessibility"),
+            ("usermenu", "person.crop.circle"),
+            ("vpn", "lock.shield"),
+        ]
+        return map.first { t.contains($0.0) }?.1
+    }
 }
 
 enum MenuBarItemService {
@@ -98,12 +153,17 @@ enum MenuBarItemService {
     /// and let the result speak for itself.
     static func capturePreviews(of items: [BarItem]) async -> [CGWindowID: NSImage] {
         let onScreen = items.filter { $0.frame.minX >= 0 }
+        TuckLog.log("capture: requested=\(items.count) onScreen=\(onScreen.count) " +
+                    "items=\(items.map { "(id:\($0.id) x:\(Int($0.frame.minX)) w:\(Int($0.frame.width)))" }.joined(separator: " "))")
         guard !onScreen.isEmpty else { return [:] }
         guard
             let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false),
             let display = content.displays.first(where: { $0.displayID == CGMainDisplayID() })
                 ?? content.displays.first
-        else { return [:] }
+        else {
+            TuckLog.log("capture: SCShareableContent FAILED (permission?)")
+            return [:]
+        }
 
         let displayWidth = CGFloat(display.width)
         let stripHeight = (onScreen.map { $0.frame.maxY }.max() ?? 30) + 2
@@ -118,8 +178,11 @@ enum MenuBarItemService {
         config.captureResolution = .best
 
         guard let strip = try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config) else {
+            TuckLog.log("capture: strip capture FAILED (display \(display.displayID), w=\(display.width))")
             return [:]
         }
+        TuckLog.log("capture: strip \(strip.width)x\(strip.height)px displayWidth=\(Int(displayWidth))pt stripHeight=\(Int(stripHeight))pt")
+        TuckLog.dump(strip, name: "strip-\(Int(Date().timeIntervalSince1970))")
 
         let actualScale = CGFloat(strip.width) / displayWidth
         var previews: [CGWindowID: NSImage] = [:]
@@ -130,13 +193,23 @@ enum MenuBarItemService {
                 width: item.frame.width * actualScale,
                 height: item.frame.height * actualScale
             ).integral
-            guard let crop = strip.cropping(to: pixelRect) else { continue }
+            guard let crop = strip.cropping(to: pixelRect) else {
+                TuckLog.log("capture: id=\(item.id) x=\(Int(item.frame.minX)) CROP FAILED rect=\(pixelRect)")
+                continue
+            }
             // Items that did not fit in the menu bar (e.g. tucked under the
             // notch) have valid frames but render nothing — a uniform slice.
             // Skipping them keeps stale-but-real previews in the cache.
-            guard !isUniformSlice(crop) else { continue }
+            guard !isUniformSlice(crop) else {
+                TuckLog.log("capture: id=\(item.id) x=\(Int(item.frame.minX)) w=\(Int(item.frame.width)) UNIFORM slice, skipped")
+                TuckLog.dump(crop, name: "uniform-\(item.id)")
+                continue
+            }
+            TuckLog.log("capture: id=\(item.id) x=\(Int(item.frame.minX)) w=\(Int(item.frame.width)) OK")
+            TuckLog.dump(crop, name: "ok-\(item.id)")
             previews[item.id] = NSImage(cgImage: crop, size: item.frame.size)
         }
+        TuckLog.log("capture: result \(previews.count)/\(onScreen.count)")
         return previews
     }
 
@@ -154,19 +227,114 @@ enum MenuBarItemService {
         return maxVal - minVal < 12
     }
 
+    // MARK: - Owning app resolution (Accessibility API)
+
+    /// Resolve which app owns each status item by walking every running
+    /// app's AXExtrasMenuBar and matching items by x-coordinate. Works for
+    /// off-screen (hidden) items too — AX reports the same shifted frames.
+    /// Requires Accessibility permission; returns items unchanged without it.
+    static func annotateWithApps(_ items: [BarItem]) -> [BarItem] {
+        guard AXIsProcessTrusted(), !items.isEmpty else {
+            if !items.isEmpty { TuckLog.log("annotate: AX not trusted, skipping") }
+            return items
+        }
+
+        struct Extra {
+            let x: CGFloat
+            let width: CGFloat
+            let title: String?
+            let pid: pid_t
+            let bundle: String?
+            let name: String?
+        }
+
+        var extras: [Extra] = []
+        for app in NSWorkspace.shared.runningApplications {
+            let ax = AXUIElementCreateApplication(app.processIdentifier)
+            var barRef: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(ax, "AXExtrasMenuBar" as CFString, &barRef) == .success,
+                  let barRef, CFGetTypeID(barRef) == AXUIElementGetTypeID()
+            else { continue }
+            let bar = unsafeDowncast(barRef, to: AXUIElement.self)
+
+            var kidsRef: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(bar, kAXChildrenAttribute as CFString, &kidsRef) == .success,
+                  let kids = kidsRef as? [AXUIElement]
+            else { continue }
+
+            for kid in kids {
+                var pos = CGPoint.zero
+                var size = CGSize.zero
+                var ref: CFTypeRef?
+                if AXUIElementCopyAttributeValue(kid, kAXPositionAttribute as CFString, &ref) == .success,
+                   let v = ref, CFGetTypeID(v) == AXValueGetTypeID() {
+                    AXValueGetValue(unsafeDowncast(v, to: AXValue.self), .cgPoint, &pos)
+                }
+                ref = nil
+                if AXUIElementCopyAttributeValue(kid, kAXSizeAttribute as CFString, &ref) == .success,
+                   let v = ref, CFGetTypeID(v) == AXValueGetTypeID() {
+                    AXValueGetValue(unsafeDowncast(v, to: AXValue.self), .cgSize, &size)
+                }
+                var title: String?
+                ref = nil
+                if AXUIElementCopyAttributeValue(kid, kAXTitleAttribute as CFString, &ref) == .success {
+                    title = ref as? String
+                }
+                if title?.isEmpty != false {
+                    ref = nil
+                    if AXUIElementCopyAttributeValue(kid, kAXDescriptionAttribute as CFString, &ref) == .success {
+                        title = ref as? String
+                    }
+                }
+                extras.append(Extra(x: pos.x, width: size.width, title: title,
+                                    pid: app.processIdentifier,
+                                    bundle: app.bundleIdentifier,
+                                    name: app.localizedName))
+            }
+        }
+        TuckLog.log("annotate: AX extras=\(extras.count) for items=\(items.count)")
+
+        return items.map { item in
+            var item = item
+            if let match = extras.min(by: { abs($0.x - item.frame.minX) < abs($1.x - item.frame.minX) }),
+               abs(match.x - item.frame.minX) < 5 {
+                item.appPID = match.pid
+                item.appBundleID = match.bundle
+                item.appName = match.name
+                if let t = match.title, !t.isEmpty { item.axTitle = t }
+            }
+            return item
+        }
+    }
+
     // MARK: - Item identity (for pinning)
 
-    /// A best-effort stable key for a status item across app launches.
-    /// Window titles are mostly the useless "Item-0" on macOS 26, so fall
-    /// back to a perceptual hash of the icon's snapshot.
-    static func identityKey(for item: BarItem) -> String {
-        if let title = item.title, !title.isEmpty, title != "Item-0" {
-            return "t:" + title
+    /// Best-effort stable keys for status items across app launches, keyed by
+    /// window id. Prefers the owning app's bundle id (with an ordinal for
+    /// apps that own several items), then AX/window titles, then a perceptual
+    /// hash of the snapshot.
+    static func identityKeys(for items: [BarItem]) -> [CGWindowID: String] {
+        var counters: [String: Int] = [:]
+        var keys: [CGWindowID: String] = [:]
+        for item in items.sorted(by: { $0.frame.minX < $1.frame.minX }) {
+            let base: String
+            if item.isControlCenterOwned, let ax = item.axTitle, !ax.isEmpty {
+                base = "cc:" + ax
+            } else if let bundle = item.appBundleID {
+                base = "b:" + bundle
+            } else if let title = item.title, !title.isEmpty, title != "Item-0" {
+                base = "t:" + title
+            } else if let image = item.image, let hash = averageHash(image) {
+                keys[item.id] = "h:" + hash
+                continue
+            } else {
+                base = "w:\(Int(item.frame.width.rounded()))"
+            }
+            let n = counters[base, default: 0]
+            counters[base] = n + 1
+            keys[item.id] = n == 0 ? base : "\(base)#\(n)"
         }
-        if let image = item.image, let hash = averageHash(image) {
-            return "h:" + hash
-        }
-        return "w:\(Int(item.frame.width.rounded()))"
+        return keys
     }
 
     /// Whether a candidate key matches a stored pin key. Hash keys compare
