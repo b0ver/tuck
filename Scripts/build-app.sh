@@ -48,6 +48,9 @@ else
     SIGN_IDENTITY="-"
     echo "==> Code signing (ad-hoc)…"
 fi
+# Strip extended attributes (e.g. Synology Drive sync metadata) that would
+# otherwise make codesign fail with "resource fork ... not allowed".
+xattr -rc "$APP"
 codesign --force --deep --sign "$SIGN_IDENTITY" "$APP"
 
 echo "==> Done: ${APP}"
