@@ -17,6 +17,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Prefs.shared.isFirstLaunch = false
             SettingsWindowController.shared.show()
         }
+
+        NotificationCenter.default.addObserver(
+            forName: .tuckPinsChanged, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.statusBar.pins.refresh()
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

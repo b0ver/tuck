@@ -44,10 +44,6 @@ final class HiddenItemsPanelController: NSObject {
                 self?.close()
                 controller?.forwardClick(to: item, rightButton: true)
             },
-            onPin: { [weak self, weak controller] item in
-                self?.close()
-                controller?.pins.pin(key: item.id)
-            },
             onGrantPermission: { [weak self] in
                 self?.close()
                 MenuBarItemService.requestAccessibilityAccess()
@@ -145,7 +141,6 @@ struct HiddenItemsPanelView: View {
     let needsPermission: Bool
     let onClick: (BarItem) -> Void
     let onRightClick: (BarItem) -> Void
-    let onPin: (BarItem) -> Void
     let onGrantPermission: () -> Void
     let onRestart: () -> Void
 
@@ -189,8 +184,7 @@ struct HiddenItemsPanelView: View {
                                 PanelIconButton(
                                     item: item,
                                     action: { onClick(item) },
-                                    rightAction: { onRightClick(item) },
-                                    pinAction: { onPin(item) }
+                                    rightAction: { onRightClick(item) }
                                 )
                             }
                         }
@@ -206,50 +200,25 @@ private struct PanelIconButton: View {
     let item: BarItem
     let action: () -> Void
     let rightAction: () -> Void
-    let pinAction: () -> Void
-
-    var body: some View {
-        // Right-click forwards the app's own context menu, like in the real
-        // menu bar; pinning lives on the hover badge instead.
-        RightClickable(onRightClick: rightAction) {
-            PanelIconTile(item: item, action: action, pinAction: pinAction)
-        }
-    }
-}
-
-private struct PanelIconTile: View {
-    let item: BarItem
-    let action: () -> Void
-    let pinAction: () -> Void
     @State private var hovering = false
 
     var body: some View {
-        Button(action: action) {
-            iconView
-                .frame(height: 24)
-                .padding(.horizontal, 4)
-                .padding(.vertical, 4)
-                .background(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(Color.primary.opacity(hovering ? 0.12 : 0))
-                )
-        }
-        .buttonStyle(.plain)
-        .help(item.displayTitle)
-        .onHover { hovering = $0 }
-        .overlay(alignment: .topTrailing) {
-            if hovering {
-                Button(action: pinAction) {
-                    Image(systemName: "pin.circle.fill")
-                        .font(.system(size: 12, weight: .semibold))
-                        .symbolRenderingMode(.palette)
-                        .foregroundStyle(Color.white, Color.accentColor)
-                        .background(Circle().fill(.background).padding(1))
-                }
-                .buttonStyle(.plain)
-                .help(L("pin.pin"))
-                .offset(x: 4, y: -4)
+        // Right-click forwards the app's own context menu, like in the real
+        // menu bar; pinning is managed from Settings → Icons.
+        RightClickable(onRightClick: rightAction) {
+            Button(action: action) {
+                iconView
+                    .frame(height: 24)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 4)
+                    .background(
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .fill(Color.primary.opacity(hovering ? 0.12 : 0))
+                    )
             }
+            .buttonStyle(.plain)
+            .help(item.displayTitle)
+            .onHover { hovering = $0 }
         }
     }
 

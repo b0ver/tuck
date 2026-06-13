@@ -19,8 +19,12 @@
 "settings.title" = "Tuck Settings";
 "tab.general" = "General";
 "tab.behavior" = "Behavior";
+"tab.icons" = "Icons";
 "tab.permissions" = "Permissions";
 "tab.about" = "About";
+
+"icons.empty" = "No menu bar icons detected.";
+"icons.hint" = "Pinned icons stay visible to the right of the Tuck chevron and forward your clicks to the real icon. Left-click activates, right-click opens the app's own menu.";
 
 "general.launchAtLogin" = "Launch Tuck at login";
 "general.startCollapsed" = "Collapse icons on launch";
@@ -40,7 +44,7 @@
 "pin.pin" = "Pin next to Tuck";
 "pin.unpin" = "Unpin";
 "pin.tooltip" = "pinned by Tuck. Click or right-click as usual, ⌥-click to unpin";
-"pin.hint" = "Hover an icon in the panel and hit the pin badge — it stays visible to the right of the Tuck chevron. Clicks (left and right) go to the real icon; ⌥-click unpins.";
+"pin.hint" = "Choose which icons to pin in Settings → Icons. Pinned icons stay visible to the right of the Tuck chevron and forward your clicks.";
 
 "perm.screen" = "Screen Recording";
 "perm.screen.desc" = "Shows live previews of hidden icons in the panel.";

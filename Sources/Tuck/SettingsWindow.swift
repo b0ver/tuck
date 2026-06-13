@@ -4,7 +4,12 @@ import SwiftUI
 // MARK: - Window controller
 
 enum SettingsTab: Hashable {
-    case general, behavior, permissions, about
+    case general, behavior, icons, permissions, about
+}
+
+extension Notification.Name {
+    /// Posted when the set of pinned icons changes, so the pin strip refreshes.
+    static let tuckPinsChanged = Notification.Name("tuck.pinsChanged")
 }
 
 final class SettingsWindowController: NSWindowController {
@@ -52,6 +57,9 @@ struct SettingsView: View {
             BehaviorTab()
                 .tabItem { Label(L("tab.behavior"), systemImage: "cursorarrow.click.2") }
                 .tag(SettingsTab.behavior)
+            IconsTab()
+                .tabItem { Label(L("tab.icons"), systemImage: "pin") }
+                .tag(SettingsTab.icons)
             PermissionsTab()
                 .tabItem { Label(L("tab.permissions"), systemImage: "lock.shield") }
                 .tag(SettingsTab.permissions)
@@ -157,6 +165,85 @@ private struct BehaviorTab: View {
         }
         .formStyle(.grouped)
         .frame(height: 400)
+    }
+}
+
+// MARK: - Icons (pinning)
+
+private struct IconsTab: View {
+    @State private var items: [BarItem] = []
+    @State private var pinned: [String] = Prefs.shared.pinnedItems
+    @State private var axGranted = MenuBarItemService.hasAccessibilityAccess
+
+    private let refresh = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if !axGranted {
+                VStack(spacing: 8) {
+                    Image(systemName: "lock.shield").font(.system(size: 24)).foregroundStyle(.tint)
+                    Text(L("perm.hint")).font(.callout).foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center).frame(maxWidth: 320)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if items.isEmpty {
+                Text(L("icons.empty")).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                List {
+                    Section {
+                        ForEach(items) { item in
+                            row(for: item)
+                        }
+                    } footer: {
+                        Text(L("icons.hint")).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .listStyle(.inset(alternatesRowBackgrounds: true))
+            }
+        }
+        .frame(height: 400)
+        .onAppear { reload() }
+        .onReceive(refresh) { _ in reload() }
+    }
+
+    private func row(for item: BarItem) -> some View {
+        HStack(spacing: 10) {
+            if let icon = item.icon {
+                Image(nsImage: icon).resizable().aspectRatio(contentMode: .fit)
+                    .frame(width: 20, height: 20)
+            } else {
+                Image(systemName: "app.dashed").frame(width: 20, height: 20).foregroundStyle(.secondary)
+            }
+            Text(item.displayTitle).lineLimit(1)
+            Spacer()
+            Toggle("", isOn: binding(for: item)).labelsHidden()
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func binding(for item: BarItem) -> Binding<Bool> {
+        Binding(
+            get: { pinned.contains { MenuBarItemService.keysMatch($0, item.id) } },
+            set: { isOn in
+                if isOn {
+                    if !pinned.contains(where: { MenuBarItemService.keysMatch($0, item.id) }) {
+                        pinned.append(item.id)
+                    }
+                } else {
+                    pinned.removeAll { MenuBarItemService.keysMatch($0, item.id) }
+                }
+                Prefs.shared.pinnedItems = pinned
+                NotificationCenter.default.post(name: .tuckPinsChanged, object: nil)
+            }
+        )
+    }
+
+    private func reload() {
+        axGranted = MenuBarItemService.hasAccessibilityAccess
+        guard axGranted else { return }
+        items = MenuBarItemService.allItems()
+        pinned = Prefs.shared.pinnedItems
     }
 }
 
