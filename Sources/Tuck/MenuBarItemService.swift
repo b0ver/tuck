@@ -155,14 +155,24 @@ enum MenuBarItemService {
     /// modules, which ignore AXPress; the cursor is then restored to where it
     /// was so it doesn't end up stranded over the menu bar.
     static func activate(_ item: BarItem, rightButton: Bool, restoreCursorTo saved: CGPoint?) {
-        if !rightButton && !item.isSystemOwned {
+        if rightButton {
+            // Right-click forwards a real secondary click so the app's own
+            // context menu opens. Leave the cursor on the menu so it's usable
+            // (warping it away can dismiss a just-opened context menu).
+            guard let point = currentClickPoint(of: item) else { return }
+            postClick(at: point, rightButton: true)
+            return
+        }
+        if !item.isSystemOwned {
             let err = AXUIElementPerformAction(item.element, kAXPressAction as CFString)
             // .cannotComplete is returned by some apps even though the menu
             // does open, so treat it as success too.
             if err == .success || err == .cannotComplete { return }
         }
+        // System modules ignore AXPress: synthesize a click, then put the
+        // cursor back so it doesn't end up stranded over the menu bar.
         guard let point = currentClickPoint(of: item) else { return }
-        postClick(at: point, rightButton: rightButton)
+        postClick(at: point, rightButton: false)
         if let saved {
             usleep(40_000)
             CGWarpMouseCursorPosition(saved)
