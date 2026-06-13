@@ -14,8 +14,6 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     private let panel = HiddenItemsPanelController()
     let pins = PinnedItemsController()
     private var autoCollapseTimer: Timer?
-    private var menuDismissMonitor: Any?
-    private var menuDismissLocalMonitor: Any?
 
     private let expandedSeparatorLength: CGFloat = 14
     private let collapsedSeparatorLength: CGFloat = 10_000
@@ -158,62 +156,20 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     // MARK: - Panel click forwarding
 
     /// Called by the panel or a pinned proxy when the user picks a hidden
-    /// icon: expand the bar so the item comes on screen, activate it (via the
-    /// Accessibility press action, which leaves the cursor in place, or a
-    /// cursor-restoring click for system modules), then collapse again once
-    /// the opened menu is dismissed.
+    /// icon. The item's menu must be on screen to appear, so briefly expand,
+    /// activate the item (via the Accessibility press action, which leaves the
+    /// cursor in place, or a cursor-restoring click for system modules), then
+    /// collapse again right away — the app's menu keeps showing in its own
+    /// process even after the icons tuck back, so the reveal is only a flash.
     func forwardClick(to item: BarItem, rightButton: Bool = false) {
         let savedCursor = CGEvent(source: nil)?.location
         expand(startAutoCollapseTimer: false)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
             guard let self else { return }
             MenuBarItemService.activate(item, rightButton: rightButton, restoreCursorTo: savedCursor)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                self.collapseAfterNextGlobalClick()
-            }
-        }
-    }
-
-    /// Collapse shortly after the user's next click anywhere (which dismisses
-    /// whatever menu the forwarded click opened). Global monitors do not see
-    /// clicks on our own UI, so a local monitor covers those. Falls back to a
-    /// timer in case no click ever arrives.
-    private func collapseAfterNextGlobalClick() {
-        removeMenuDismissMonitors()
-        let trigger: () -> Void = { [weak self] in
-            guard let self else { return }
-            self.removeMenuDismissMonitors()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                // Don't fight the panel: if the click that dismissed the
-                // forwarded menu was the user opening the panel, let it be.
-                guard !self.panel.isShown, !self.panel.isPreparing else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 self.collapse()
             }
-        }
-        menuDismissMonitor = NSEvent.addGlobalMonitorForEvents(
-            matching: [.leftMouseDown, .rightMouseDown]
-        ) { _ in trigger() }
-        menuDismissLocalMonitor = NSEvent.addLocalMonitorForEvents(
-            matching: [.leftMouseDown, .rightMouseDown]
-        ) { event in
-            trigger()
-            return event
-        }
-        autoCollapseTimer?.invalidate()
-        autoCollapseTimer = Timer.scheduledTimer(withTimeInterval: 12, repeats: false) { [weak self] _ in
-            self?.removeMenuDismissMonitors()
-            self?.collapse()
-        }
-    }
-
-    private func removeMenuDismissMonitors() {
-        if let monitor = menuDismissMonitor {
-            NSEvent.removeMonitor(monitor)
-            menuDismissMonitor = nil
-        }
-        if let monitor = menuDismissLocalMonitor {
-            NSEvent.removeMonitor(monitor)
-            menuDismissLocalMonitor = nil
         }
     }
 

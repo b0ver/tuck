@@ -190,13 +190,12 @@ private struct IconsTab: View {
                 Text(L("icons.empty")).foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
+                explainer
                 List {
-                    Section {
+                    Section(header: Text(L("icons.section"))) {
                         ForEach(items) { item in
                             row(for: item)
                         }
-                    } footer: {
-                        Text(L("icons.hint")).font(.caption).foregroundStyle(.secondary)
                     }
                 }
                 .listStyle(.inset(alternatesRowBackgrounds: true))
@@ -205,6 +204,31 @@ private struct IconsTab: View {
         .frame(height: 400)
         .onAppear { reload() }
         .onReceive(refresh) { _ in reload() }
+    }
+
+    private var explainer: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "pin.fill")
+                .foregroundStyle(.tint)
+                .font(.system(size: 14))
+                .padding(.top, 1)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(L("icons.explainer.title"))
+                    .font(.callout).fontWeight(.medium)
+                Text(L("icons.explainer.body"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor))
+        )
+        .padding([.horizontal, .top], 14)
+        .padding(.bottom, 4)
     }
 
     private func row(for item: BarItem) -> some View {

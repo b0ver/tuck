@@ -24,7 +24,9 @@
 "tab.about" = "About";
 
 "icons.empty" = "No menu bar icons detected.";
-"icons.hint" = "Pinned icons stay visible to the right of the Tuck chevron and forward your clicks to the real icon. Left-click activates, right-click opens the app's own menu.";
+"icons.section" = "Pin to keep visible";
+"icons.explainer.title" = "How pinning works";
+"icons.explainer.body" = "A pinned icon stays visible to the right of the Tuck chevron. Click it to open the app — left-click activates, right-click opens the app's own menu. The menu appears where the real icon sits in the menu bar (the icons briefly slide out, then tuck back). For a fully native icon whose menu opens right under it, hold ⌘ and drag it to the right of the Tuck divider instead.";
 
 "general.launchAtLogin" = "Launch Tuck at login";
 "general.startCollapsed" = "Collapse icons on launch";
