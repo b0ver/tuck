@@ -3,19 +3,29 @@ import SwiftUI
 
 // MARK: - Window controller
 
+enum SettingsTab: Hashable {
+    case general, behavior, permissions, about
+}
+
 final class SettingsWindowController: NSWindowController {
     static let shared = SettingsWindowController()
 
+    private let selection = SettingsSelection()
+
     convenience init() {
-        let hosting = NSHostingController(rootView: SettingsView())
+        let selection = SettingsSelection()
+        let hosting = NSHostingController(rootView: SettingsView(selection: selection))
         let window = NSWindow(contentViewController: hosting)
         window.title = L("settings.title")
         window.styleMask = [.titled, .closable, .miniaturizable]
         window.isReleasedWhenClosed = false
         self.init(window: window)
+        // Replace the throwaway selection with one we keep a reference to.
+        hosting.rootView = SettingsView(selection: self.selection)
     }
 
-    func show() {
+    func show(tab: SettingsTab? = nil) {
+        if let tab { selection.tab = tab }
         NSApp.activate(ignoringOtherApps: true)
         if window?.isVisible != true {
             window?.center()
@@ -25,19 +35,29 @@ final class SettingsWindowController: NSWindowController {
     }
 }
 
+final class SettingsSelection: ObservableObject {
+    @Published var tab: SettingsTab = .general
+}
+
 // MARK: - Root view
 
 struct SettingsView: View {
+    @ObservedObject var selection: SettingsSelection
+
     var body: some View {
-        TabView {
+        TabView(selection: $selection.tab) {
             GeneralTab()
                 .tabItem { Label(L("tab.general"), systemImage: "gearshape") }
+                .tag(SettingsTab.general)
             BehaviorTab()
                 .tabItem { Label(L("tab.behavior"), systemImage: "cursorarrow.click.2") }
+                .tag(SettingsTab.behavior)
             PermissionsTab()
                 .tabItem { Label(L("tab.permissions"), systemImage: "lock.shield") }
+                .tag(SettingsTab.permissions)
             AboutTab()
                 .tabItem { Label(L("tab.about"), systemImage: "info.circle") }
+                .tag(SettingsTab.about)
         }
         .frame(width: 460)
     }
@@ -143,7 +163,6 @@ private struct BehaviorTab: View {
 // MARK: - Permissions
 
 private struct PermissionsTab: View {
-    @State private var screenGranted = MenuBarItemService.hasScreenCaptureAccess
     @State private var axGranted = MenuBarItemService.hasAccessibilityAccess
 
     private let refresh = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
@@ -151,15 +170,6 @@ private struct PermissionsTab: View {
     var body: some View {
         Form {
             Section {
-                permissionRow(
-                    granted: screenGranted,
-                    title: L("perm.screen"),
-                    description: L("perm.screen.desc"),
-                    request: {
-                        CGRequestScreenCaptureAccess()
-                        openPrivacyPane("Privacy_ScreenCapture")
-                    }
-                )
                 permissionRow(
                     granted: axGranted,
                     title: L("perm.ax"),
@@ -182,9 +192,8 @@ private struct PermissionsTab: View {
             }
         }
         .formStyle(.grouped)
-        .frame(height: 320)
+        .frame(height: 280)
         .onReceive(refresh) { _ in
-            screenGranted = MenuBarItemService.hasScreenCaptureAccess
             axGranted = MenuBarItemService.hasAccessibilityAccess
         }
     }

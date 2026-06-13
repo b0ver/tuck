@@ -7,7 +7,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Prefs.registerDefaults()
         statusBar.setUp()
 
-        if Prefs.shared.isFirstLaunch {
+        // Accessibility is mandatory on macOS 26 (the menu bar can no longer be
+        // captured). If it isn't granted, surface the requirement immediately
+        // rather than letting the panel come up empty.
+        if !MenuBarItemService.hasAccessibilityAccess {
+            MenuBarItemService.requestAccessibilityAccess()
+            SettingsWindowController.shared.show(tab: .permissions)
+        } else if Prefs.shared.isFirstLaunch {
             Prefs.shared.isFirstLaunch = false
             SettingsWindowController.shared.show()
         }

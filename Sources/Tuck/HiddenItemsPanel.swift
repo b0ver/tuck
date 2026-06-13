@@ -10,45 +10,27 @@ final class HiddenItemsPanelController: NSObject {
     var isShown: Bool { panel?.isVisible ?? false }
     private(set) var isPreparing = false
 
-    /// Must be called while the bar is collapsed. Previews come from the
-    /// controller's cache (snapshotted while the icons were visible); if the
-    /// cache has nothing for the current items — e.g. Screen Recording was
-    /// granted only after launch — self-heal with one brief expand/collapse.
+    /// Must be called while the bar is collapsed. Items are read live from the
+    /// Accessibility API (the only reliable source on macOS 26).
     func show(from controller: StatusBarController) {
         guard !isPreparing else { return }
         isPreparing = true
-        Task { @MainActor in
-            defer { self.isPreparing = false }
-            var items = MenuBarItemService.annotateWithApps(
-                MenuBarItemService.hiddenItemsWhileCollapsed()
-            )
-            items = items.map { item in
-                var item = item
-                item.image = controller.previewCache[item.id]
-                return item
-            }
+        defer { isPreparing = false }
 
-            let keys = MenuBarItemService.identityKeys(for: items)
-
-            // Pinned icons already live next to the Tuck button as proxies.
-            let pinned = Prefs.shared.pinnedItems
-            items.removeAll { item in
-                guard let key = keys[item.id] else { return false }
-                return pinned.contains { MenuBarItemService.keysMatch($0, key) }
-            }
-
-            self.presentPanel(items: items, keys: keys, controller: controller)
+        var items = MenuBarItemService.hiddenItems()
+        // Pinned icons already live next to the Tuck button as proxies.
+        let pinned = Prefs.shared.pinnedItems
+        items.removeAll { item in
+            pinned.contains { MenuBarItemService.keysMatch($0, item.id) }
         }
+        presentPanel(items: items, controller: controller)
     }
 
-    @MainActor
-    private func presentPanel(items: [BarItem], keys: [CGWindowID: String], controller: StatusBarController) {
+    private func presentPanel(items: [BarItem], controller: StatusBarController) {
         close()
 
-        // Suggest permissions only when we cannot identify anything at all:
-        // no captured pixels AND no app identity (= Accessibility missing).
-        let needsPermission = !items.isEmpty
-            && items.allSatisfy { $0.image == nil && $0.fallbackIcon == nil }
+        // Without Accessibility, items can't be enumerated at all.
+        let needsPermission = !MenuBarItemService.hasAccessibilityAccess
 
         let view = HiddenItemsPanelView(
             items: items,
@@ -64,13 +46,11 @@ final class HiddenItemsPanelController: NSObject {
             },
             onPin: { [weak self, weak controller] item in
                 self?.close()
-                guard let key = keys[item.id] else { return }
-                controller?.pins.pin(key: key)
+                controller?.pins.pin(key: item.id)
             },
             onGrantPermission: { [weak self] in
                 self?.close()
                 MenuBarItemService.requestAccessibilityAccess()
-                CGRequestScreenCaptureAccess()
                 let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
                 NSWorkspace.shared.open(url)
             },
@@ -146,7 +126,7 @@ final class HiddenItemsPanelController: NSObject {
         panel = nil
     }
 
-    /// Screen Recording permission only takes effect after a relaunch.
+    /// Accessibility permission reliably takes effect after a relaunch.
     private static func relaunchApp() {
         let path = Bundle.main.bundlePath
         let task = Process()
@@ -178,15 +158,11 @@ struct HiddenItemsPanelView: View {
 
     var body: some View {
         Group {
-            if items.isEmpty {
-                Text(L("panel.empty"))
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: 260)
-                    .multilineTextAlignment(.center)
-                    .padding(14)
-            } else if needsPermission {
+            if needsPermission {
                 VStack(spacing: 8) {
+                    Image(systemName: "lock.shield")
+                        .font(.system(size: 22))
+                        .foregroundStyle(.tint)
                     Text(L("panel.permission"))
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
@@ -197,7 +173,14 @@ struct HiddenItemsPanelView: View {
                     Button(L("panel.permission.restart"), action: onRestart)
                         .controlSize(.small)
                 }
-                .padding(14)
+                .padding(16)
+            } else if items.isEmpty {
+                Text(L("panel.empty"))
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: 260)
+                    .multilineTextAlignment(.center)
+                    .padding(14)
             } else {
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
@@ -272,15 +255,11 @@ private struct PanelIconTile: View {
 
     @ViewBuilder
     private var iconView: some View {
-        if let image = item.image {
-            Image(nsImage: image)
+        if let icon = item.icon {
+            Image(nsImage: icon)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
-        } else if let fallback = item.fallbackIcon {
-            Image(nsImage: fallback)
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 19, height: 19)
+                .frame(width: 20, height: 20)
         } else {
             Image(systemName: "app.dashed")
                 .font(.system(size: 14))

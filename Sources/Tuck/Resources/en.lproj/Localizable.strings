@@ -11,8 +11,8 @@
 
 /* Panel */
 "panel.empty" = "No hidden icons yet. Hold ⌘ and drag menu bar icons to the left of the Tuck divider.";
-"panel.permission" = "Allow Accessibility (to identify and click icons) and Screen Recording (for live previews) in System Settings.";
-"panel.permission.button" = "Allow in System Settings…";
+"panel.permission" = "Tuck needs Accessibility access to find your menu bar icons and click them. Enable Tuck under Accessibility, then relaunch.";
+"panel.permission.button" = "Open Accessibility Settings…";
 "panel.permission.restart" = "I allowed it — restart Tuck";
 
 /* Settings */
@@ -48,7 +48,7 @@
 "perm.ax.desc" = "Lets you click hidden icons right from the panel.";
 "perm.granted" = "Granted";
 "perm.request" = "Allow…";
-"perm.hint" = "Tuck works without these permissions too: the panel falls back to app icons, and clicking expands the menu bar.";
+"perm.hint" = "Accessibility is required: on macOS the menu bar can no longer be captured, so Tuck identifies and clicks your icons through Accessibility. Relaunch Tuck after granting.";
 
 "about.tagline" = "One icon to tuck them all.";
 "about.version" = "Version %@";

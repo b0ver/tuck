@@ -51,8 +51,6 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         applySeparatorVisibility()
         updateToggleImage()
         if Prefs.shared.startCollapsed {
-            // Give the status bar a moment to settle, then collapse() — it
-            // snapshots the visible icons into the preview cache first.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
                 self?.collapse()
             }
@@ -71,44 +69,9 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         d.set(76, forKey: "NSStatusItem Preferred Position tuck.separator")
     }
 
-    // MARK: - Preview cache
-
-    /// Latest snapshots of menu bar icons, keyed by window id. Refreshed
-    /// whenever the icons are visible (launch, every collapse), because
-    /// display capture cannot see them once they are pushed off-screen.
-    private(set) var previewCache: [CGWindowID: NSImage] = [:]
-
-    @MainActor
-    func refreshPreviewCache() async {
-        TuckLog.log("refreshPreviewCache (isCollapsed=\(isCollapsed))")
-        let visible = MenuBarItemService.visibleItems()
-        let captured = await MenuBarItemService.capturePreviews(of: visible)
-        if !captured.isEmpty {
-            previewCache.merge(captured) { _, new in new }
-        }
-        TuckLog.log("cache now holds \(previewCache.count) previews")
-    }
-
     // MARK: - Collapse / expand
 
-    /// Snapshot the visible icons for the panel previews, then hide them.
     func collapse() {
-        if isCollapsed {
-            applyCollapsedState()
-            return
-        }
-        Task { @MainActor in
-            await refreshPreviewCache()
-            self.applyCollapsedState()
-        }
-    }
-
-    /// Hide immediately without refreshing the preview cache.
-    func collapseWithoutCapture() {
-        applyCollapsedState()
-    }
-
-    private func applyCollapsedState() {
         panel.close()
         isCollapsed = true
         separatorItem.length = collapsedSeparatorLength
@@ -127,12 +90,6 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         updateToggleImage()
         if startAutoCollapseTimer {
             scheduleAutoCollapse()
-        }
-        // The icons are visible now — opportunistically refresh previews.
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 700_000_000)
-            guard !self.isCollapsed else { return }
-            await self.refreshPreviewCache()
         }
     }
 
@@ -184,34 +141,32 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         }
     }
 
-    /// The panel enumerates hidden items in their off-screen (collapsed)
-    /// positions, so make sure the bar is collapsed before showing it —
-    /// refreshing the preview cache on the way since the icons are visible.
+    /// The panel reads hidden items in their off-screen (collapsed) positions,
+    /// so make sure the bar is collapsed before showing it.
     private func showPanelCollapsingFirst() {
         if isCollapsed {
             panel.show(from: self)
             return
         }
-        Task { @MainActor in
-            await refreshPreviewCache()
-            collapseWithoutCapture()
-            try? await Task.sleep(nanoseconds: 250_000_000)
-            panel.show(from: self)
+        collapse()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            guard let self else { return }
+            self.panel.show(from: self)
         }
     }
 
     // MARK: - Panel click forwarding
 
     /// Called by the panel or a pinned proxy when the user picks a hidden
-    /// icon: expand the bar, synthesize a click (left or right) on the real
-    /// status item, then collapse again once the opened menu is dismissed.
+    /// icon: expand the bar so the item comes on screen, synthesize a click
+    /// (left or right) at the item's live Accessibility position, then
+    /// collapse again once the opened menu is dismissed.
     func forwardClick(to item: BarItem, rightButton: Bool = false) {
         expand(startAutoCollapseTimer: false)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
             guard let self else { return }
-            if let frame = MenuBarItemService.currentFrame(of: item.id) {
-                MenuBarItemService.postClick(at: CGPoint(x: frame.midX, y: frame.midY),
-                                             rightButton: rightButton)
+            if let point = MenuBarItemService.currentClickPoint(of: item) {
+                MenuBarItemService.postClick(at: point, rightButton: rightButton)
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
                 self.collapseAfterNextGlobalClick()

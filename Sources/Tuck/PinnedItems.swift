@@ -43,20 +43,11 @@ final class PinnedItemsController {
             return
         }
 
-        var items = MenuBarItemService.annotateWithApps(
-            MenuBarItemService.hiddenItemsWhileCollapsed()
-        )
-        items = items.map { item in
-            var item = item
-            item.image = statusBar.previewCache[item.id]
-            return item
-        }
-        let keys = MenuBarItemService.identityKeys(for: items)
+        let items = MenuBarItemService.hiddenItems()
 
         var matches: [String: BarItem] = [:]
         for item in items {
-            guard let key = keys[item.id] else { continue }
-            if let storedKey = pinned.first(where: { MenuBarItemService.keysMatch($0, key) }) {
+            if let storedKey = pinned.first(where: { MenuBarItemService.keysMatch($0, item.id) }) {
                 matches[storedKey] = item
             }
         }
@@ -146,13 +137,7 @@ final class PinnedItemsController {
     }
 
     private func displayImage(for item: BarItem) -> NSImage? {
-        if let image = item.image, let copy = image.copy() as? NSImage {
-            let height: CGFloat = 22
-            let width = max(8, image.size.width * height / max(1, image.size.height))
-            copy.size = NSSize(width: width, height: height)
-            return copy
-        }
-        if let fallback = item.fallbackIcon, let copy = fallback.copy() as? NSImage {
+        if let icon = item.icon, let copy = icon.copy() as? NSImage {
             copy.size = NSSize(width: 18, height: 18)
             return copy
         }
