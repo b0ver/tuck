@@ -158,16 +158,16 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     // MARK: - Panel click forwarding
 
     /// Called by the panel or a pinned proxy when the user picks a hidden
-    /// icon: expand the bar so the item comes on screen, synthesize a click
-    /// (left or right) at the item's live Accessibility position, then
-    /// collapse again once the opened menu is dismissed.
+    /// icon: expand the bar so the item comes on screen, activate it (via the
+    /// Accessibility press action, which leaves the cursor in place, or a
+    /// cursor-restoring click for system modules), then collapse again once
+    /// the opened menu is dismissed.
     func forwardClick(to item: BarItem, rightButton: Bool = false) {
+        let savedCursor = CGEvent(source: nil)?.location
         expand(startAutoCollapseTimer: false)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
             guard let self else { return }
-            if let point = MenuBarItemService.currentClickPoint(of: item) {
-                MenuBarItemService.postClick(at: point, rightButton: rightButton)
-            }
+            MenuBarItemService.activate(item, rightButton: rightButton, restoreCursorTo: savedCursor)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
                 self.collapseAfterNextGlobalClick()
             }

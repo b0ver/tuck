@@ -148,6 +148,27 @@ enum MenuBarItemService {
         return CGPoint(x: pos.x + size.width / 2, y: pos.y + size.height / 2)
     }
 
+    /// Activate the item, opening its menu. Prefers the Accessibility press
+    /// action for app icons (it never moves the mouse cursor — the cause of
+    /// the cursor "flying" to the real off-screen icon). Falls back to a
+    /// synthesized click for right-clicks and for Control Center / system
+    /// modules, which ignore AXPress; the cursor is then restored to where it
+    /// was so it doesn't end up stranded over the menu bar.
+    static func activate(_ item: BarItem, rightButton: Bool, restoreCursorTo saved: CGPoint?) {
+        if !rightButton && !item.isSystemOwned {
+            let err = AXUIElementPerformAction(item.element, kAXPressAction as CFString)
+            // .cannotComplete is returned by some apps even though the menu
+            // does open, so treat it as success too.
+            if err == .success || err == .cannotComplete { return }
+        }
+        guard let point = currentClickPoint(of: item) else { return }
+        postClick(at: point, rightButton: rightButton)
+        if let saved {
+            usleep(40_000)
+            CGWarpMouseCursorPosition(saved)
+        }
+    }
+
     /// Synthesize a click at a point in global display coordinates.
     static func postClick(at point: CGPoint, rightButton: Bool = false) {
         let source = CGEventSource(stateID: .hidSystemState)
